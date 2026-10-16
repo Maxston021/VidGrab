@@ -273,7 +273,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
         item.res = @"";
         item.duration = 0;
         item.bytes = [attrs fileSize];
-        item.audio = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]] containsObject:ext];
+        item.audio = [[NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]] containsObject:ext];
         item.photos = NO;
         item.date = attrs.fileModificationDate ?: [NSDate date];
         item.vault = YES;
