@@ -626,6 +626,8 @@ enum { kSecFolders = 0, kSecTasks = 1, kSecItems = 2 };
         [self.navigationController popViewControllerAnimated:YES];
         return;
     }
+    // Real-time sync: import any media files placed in the vault via Files app / Shortcuts.
+    if (self.vaultMode) [[VGEngine shared] syncVaultWithFilesystem];
     NSMutableArray *mine = [NSMutableArray array];
     NSUInteger locked = 0, shown = 0;
     long long shownBytes = 0;

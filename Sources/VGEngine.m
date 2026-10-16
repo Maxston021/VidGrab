@@ -231,7 +231,6 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     NSData *d = [NSData dataWithContentsOfFile:supportPath(@"library.json")];
     NSArray *arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
     NSFileManager *fm = NSFileManager.defaultManager;
-    NSMutableSet *knownFiles = [NSMutableSet set];
     for (NSDictionary *x in ([arr isKindOfClass:NSArray.class] ? arr : @[])) {
         VGItem *i = [VGItem fromDict:x];
         // Drop entries whose files were removed in the Files app.
@@ -239,15 +238,13 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
             VGFolder *fo = i.folderID ? [self folderWithID:i.folderID] : nil;
             if (i.folderID && (!fo || fo.vault != i.vault)) i.folderID = nil;   // its folder is gone, or it sits in the wrong place
             [self.library addObject:i];
-            [knownFiles addObject:i.fileName];
         }
     }
-    // Auto-import media files placed directly into the vault via Files app / Shortcuts.
-    [self scanVaultForNewFiles:knownFiles];
 }
 
-/// Scans the vault directory for media files not yet in the library and imports them.
-- (void)scanVaultForNewFiles:(NSMutableSet *)knownFiles {
+/// Real-time sync: scans the vault directory and imports any media files not yet in the library.
+/// Call this whenever the vault screen appears so files added via Files app / Shortcuts show up immediately.
+- (void)syncVaultWithFilesystem {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *vaultPath = vaultDir();
     NSArray *vaultFiles = [fm contentsOfDirectoryAtPath:vaultPath error:nil];
@@ -255,6 +252,9 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     
     NSSet *mediaExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv",
                                                @"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+    NSMutableSet *knownFiles = [NSMutableSet set];
+    for (VGItem *i in self.library) if (i.vault) [knownFiles addObject:i.fileName];
+    
     BOOL changed = NO;
     
     for (NSString *fname in vaultFiles) {

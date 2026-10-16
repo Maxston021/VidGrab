@@ -96,6 +96,8 @@ extern NSString *const VGTaskFinishedNotification;
 + (BOOL)hasUnfinishedDownloads;
 + (instancetype)shared;
 @property (nonatomic, readonly) NSArray<VGItem *> *items;
+/// Real-time sync: scans the vault directory and imports any media files not yet in the library.
+- (void)syncVaultWithFilesystem;
 /// Queued, running and failed downloads, oldest first.
 @property (nonatomic, readonly) NSArray<VGTask *> *tasks;
 /// Downloads still to finish (queued + running).
