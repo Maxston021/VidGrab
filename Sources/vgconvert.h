@@ -68,7 +68,7 @@ int vg_validate_mp4(const char *path, double expectDur, int wantAudio,
 
 
 
-#endif /* VGCONVERT_C_H */#ifdef __OBJC__
+#ifdef __OBJC__
 
 #import <Foundation/Foundation.h>
 
