@@ -148,7 +148,7 @@ static UIColor *usageColor(double used) {
     CGFloat r = 0, g = 0, b = 0, a = 0;
     [c getRed:&r green:&g blue:&b alpha:&a];
     self.appFill.backgroundColor = [UIColor colorWithRed:r + (1 - r) * 0.55 green:g + (1 - g) * 0.55 blue:b + (1 - b) * 0.55 alpha:1];
-    self.freeLabel.text = [NSString stringWithFormat:@"%@ free of %@", gb2(free), capacityName(total)];
+    self.freeLabel.text = [NSString stringWithFormat:@"共 %@，可用 %@", capacityName(total), gb2(free)];
     self.appLabel.text = [NSString stringWithFormat:@"VidGrab %@", sizeShort(vid)];
     self.accessibilityLabel = [NSString stringWithFormat:@"Phone storage: %@ free of %@. VidGrab videos use %@.", gb2(free), capacityName(total), sizeShort(vid)];
     [self layoutBar];

@@ -747,7 +747,8 @@ enum { kSecFolders = 0, kSecTasks = 1, kSecItems = 2 };
         }
     }
     
-    [self.storageCard refreshWithVidGrabBytes:[VGEngine shared].totalBytes];
+    long long storageBytes = self.vaultMode ? [[VGEngine shared] vaultTotalBytes] : [[VGEngine shared] downloadsTotalBytes];
+    [self.storageCard refreshWithVidGrabBytes:storageBytes];
     if (self.vaultButton) {
         UIButtonConfiguration *c = self.vaultButton.configuration;
         c.attributedTitle = [[NSAttributedString alloc] initWithString:@"Private Vault 2.0" attributes:@{NSFontAttributeName: VGFont(16, UIFontWeightBold)}];

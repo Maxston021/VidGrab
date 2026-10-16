@@ -188,6 +188,9 @@ extern NSString *const VGTaskFinishedNotification;
 - (void)autoUpdateIfNeeded;
 - (NSString *)engineVersion;
 - (long long)totalBytes;
+- (long long)sizeOfDirectory:(NSString *)dirPath;
+- (long long)downloadsTotalBytes;
+- (long long)vaultTotalBytes;
 @end
 
 NS_ASSUME_NONNULL_END

@@ -745,6 +745,36 @@ static NSString *cleanFolderName(NSString *name) {
     return t;
 }
 
+/// Recursively calculate total size of all files in a directory.
+- (long long)sizeOfDirectory:(NSString *)dirPath {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    long long total = 0;
+    NSArray *entries = [fm contentsOfDirectoryAtPath:dirPath error:nil];
+    for (NSString *name in entries) {
+        if ([name hasPrefix:@"."]) continue;
+        NSString *path = [dirPath stringByAppendingPathComponent:name];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:path isDirectory:&isDir]) continue;
+        if (isDir) {
+            total += [self sizeOfDirectory:path];
+        } else {
+            NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
+            total += [attrs fileSize];
+        }
+    }
+    return total;
+}
+
+/// Total size of all files in Downloads directory (recursive).
+- (long long)downloadsTotalBytes {
+    return [self sizeOfDirectory:downloadsDir()];
+}
+
+/// Total size of all files in Vault directory (recursive).
+- (long long)vaultTotalBytes {
+    return [self sizeOfDirectory:vaultDir()];
+}
+
 #pragma mark Cookies
 
 static NSString *baseDomain(NSString *host) {
