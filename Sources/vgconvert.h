@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-completeness"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -61,6 +64,8 @@ int vg_validate_mp4(const char *path, double expectDur, int wantAudio,
 #ifdef __cplusplus
 }
 #endif
+
+#pragma clang diagnostic pop
 
 #endif /* VGCONVERT_C_H */
 
