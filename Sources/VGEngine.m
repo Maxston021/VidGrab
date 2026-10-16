@@ -251,7 +251,6 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     NSMutableArray<VGFolder *> *folders = [NSMutableArray array];
     NSMutableArray<VGItem *> *files = [NSMutableArray array];
     
-    NSSet *videoExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv"]];
     NSSet *audioExts = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
     
     NSArray *entries = [fm contentsOfDirectoryAtPath:fullPath error:nil];
