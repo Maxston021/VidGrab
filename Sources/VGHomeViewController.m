@@ -485,7 +485,8 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
         [self.chipsSection.trailingAnchor constraintEqualToAnchor:wrap.trailingAnchor],
     ]];
     self.chipsSection = wrap;
-    [self.stack addArrangedSubview:wrap];
+    // Removed: "Works with" chips section no longer shown
+    // [self.stack addArrangedSubview:wrap];
 }
 
 - (void)buildQuality {
@@ -1541,42 +1542,14 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
     self.nowCard.isAccessibilityElement = YES;
     self.nowCard.accessibilityTraits = UIAccessibilityTraitButton;
 
-    // Recently saved
-    UILabel *h = [self label:VGFont(18, UIFontWeightBold) color:VGText lines:1];
-    h.text = @"Recently saved";
-    UIButton *all = [UIButton buttonWithType:UIButtonTypeSystem];
-    [all setTitle:@"See all" forState:UIControlStateNormal];
-    all.titleLabel.font = VGFont(14, UIFontWeightBold);
-    all.tintColor = VGAccentSoft;
-    [all addTarget:self action:@selector(openDownloads) forControlEvents:UIControlEventTouchUpInside];
-    UIView *sp = [UIView new];
-    UIStackView *head = [[UIStackView alloc] initWithArrangedSubviews:@[h, sp, all]];
-    head.alignment = UIStackViewAlignmentCenter;
-    // A row you can swipe sideways: two cards fit on screen, the rest of the recent downloads wait off to the side.
-    self.recentRow = [UIStackView new];
-    self.recentRow.spacing = 12;
-    self.recentRow.alignment = UIStackViewAlignmentTop;
-    self.recentRow.translatesAutoresizingMaskIntoConstraints = NO;
-    UIScrollView *rs = [UIScrollView new];
-    rs.showsHorizontalScrollIndicator = NO;
-    rs.alwaysBounceHorizontal = YES;
-    rs.clipsToBounds = YES;
-    [rs addSubview:self.recentRow];
-    [NSLayoutConstraint activateConstraints:@[
-        [self.recentRow.topAnchor constraintEqualToAnchor:rs.contentLayoutGuide.topAnchor],
-        [self.recentRow.bottomAnchor constraintEqualToAnchor:rs.contentLayoutGuide.bottomAnchor],
-        [self.recentRow.leadingAnchor constraintEqualToAnchor:rs.contentLayoutGuide.leadingAnchor],
-        [self.recentRow.trailingAnchor constraintEqualToAnchor:rs.contentLayoutGuide.trailingAnchor],
-        [rs.heightAnchor constraintEqualToAnchor:self.recentRow.heightAnchor]]];
-    self.recentScroll = rs;
-    self.recentBlock = [self vstack:@[head, rs] spacing:10];
+    // Removed: "Recently saved" section no longer shown
 
-    UIStackView *s = [self vstack:@[self.nowCard, self.recentBlock] spacing:22];
+    UIStackView *s = [self vstack:@[self.nowCard] spacing:22];
     self.activitySection = [self padded:s top:14 bottom:6];
-    // Put it right after the link box, before the "works with" chips.
-    NSUInteger at = [self.stack.arrangedSubviews indexOfObject:self.chipsSection];
+    // Put it right after the link box
+    NSUInteger at = [self.stack.arrangedSubviews indexOfObject:self.linkSection];
     if (at == NSNotFound) [self.stack addArrangedSubview:self.activitySection];
-    else [self.stack insertArrangedSubview:self.activitySection atIndex:at];
+    else [self.stack insertArrangedSubview:self.activitySection atIndex:at + 1];
 }
 
 - (void)openDownloads {
@@ -1595,25 +1568,7 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
         self.nowBar.progress = t.fraction;
         self.nowCard.accessibilityLabel = [NSString stringWithFormat:@"Downloading %@, %@", self.nowTitle.text, self.nowPercent.text];
     }
-    NSMutableArray<VGItem *> *recent = [NSMutableArray array];
-    for (VGItem *i in [VGEngine shared].items) {
-        if (i.vault) continue;
-        [recent addObject:i];
-        if (recent.count == 12) break;
-    }
-    // Only rebuild the thumbnails when the list changed.
-    NSString *key = [[recent valueForKey:@"fileName"] componentsJoinedByString:@"|"];
-    if (![key isEqualToString:self.recentRow.accessibilityIdentifier]) {
-        self.recentRow.accessibilityIdentifier = key;
-        for (UIView *v in self.recentRow.arrangedSubviews) [v removeFromSuperview];
-        for (VGItem *i in recent) {
-            UIView *card = [self recentCard:i];
-            [self.recentRow addArrangedSubview:card];
-            [card.widthAnchor constraintEqualToAnchor:self.recentScroll.frameLayoutGuide.widthAnchor multiplier:0.5 constant:-6].active = YES;
-        }
-        self.recentScroll.contentOffset = CGPointZero;
-    }
-    self.recentBlock.hidden = recent.count == 0;
+    // Removed: "Recently saved" refresh logic
 }
 
 - (UIView *)recentCard:(VGItem *)item {

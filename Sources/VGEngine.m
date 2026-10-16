@@ -242,39 +242,42 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     }
 }
 
-/// Scans a vault subdirectory directly from the filesystem and returns all folders and files.
-- (void)vaultContentsAtPath:(NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
+/// Common method: scan a directory and return folders and media/files, generating missing thumbnails.
+- (void)scanDirectory:(NSString *)dirPath basePath:(NSString *)basePath relPrefix:(NSString *)relPrefix isVault:(BOOL)isVault folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
     NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *basePath = vaultDir();
-    NSString *fullPath = relPath.length ? [basePath stringByAppendingPathComponent:relPath] : basePath;
     
     NSMutableArray<VGFolder *> *folders = [NSMutableArray array];
     NSMutableArray<VGItem *> *files = [NSMutableArray array];
     
+    NSSet *videoExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv"]];
     NSSet *audioExts = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
     
-    NSArray *entries = [fm contentsOfDirectoryAtPath:fullPath error:nil];
+    NSArray *entries = [fm contentsOfDirectoryAtPath:dirPath error:nil];
     for (NSString *name in entries) {
         if ([name hasPrefix:@"."]) continue;  // skip hidden files
-        NSString *entryPath = [fullPath stringByAppendingPathComponent:name];
+        NSString *entryPath = [dirPath stringByAppendingPathComponent:name];
         BOOL isDir = NO;
         if (![fm fileExistsAtPath:entryPath isDirectory:&isDir]) continue;
         
         NSDictionary *attrs = [fm attributesOfItemAtPath:entryPath error:nil];
         
         if (isDir) {
+            // Skip .vault directory in Downloads view
+            if (!isVault && [name isEqualToString:@".vault"]) continue;
+            
             VGFolder *f = [VGFolder new];
-            f.identifier = relPath.length ? [relPath stringByAppendingPathComponent:name] : name;
+            NSString *relName = relPrefix.length ? [relPrefix stringByAppendingPathComponent:name] : name;
+            f.identifier = relName;
             f.name = name;
             f.colorHex = @"0A84FF";
             f.date = attrs.fileModificationDate ?: [NSDate date];
-            f.vault = YES;
+            f.vault = isVault;
             [folders addObject:f];
         } else {
             NSString *ext = name.pathExtension.lowercaseString;
             
-            // Build relative path from vault root for fileName
-            NSString *relName = relPath.length ? [relPath stringByAppendingPathComponent:name] : name;
+            // Build relative path from base for fileName
+            NSString *relName = relPrefix.length ? [relPrefix stringByAppendingPathComponent:name] : name;
             
             VGItem *item = [VGItem new];
             item.fileName = relName;
@@ -286,10 +289,20 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
             item.audio = [audioExts containsObject:ext];
             item.photos = NO;
             item.date = attrs.fileModificationDate ?: [NSDate date];
-            item.vault = YES;
+            item.vault = isVault;
             item.folderID = nil;
             item.favorite = NO;
             [files addObject:item];
+            
+            // Generate thumbnail for video files if missing
+            if ([videoExts containsObject:ext] && ![fm fileExistsAtPath:[item thumbPath]]) {
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_BACKGROUND, 0), ^{
+                    [self makeThumbnailFor:item fallbackURL:nil];
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [NSNotificationCenter.defaultCenter postNotificationName:VGLibraryDidChangeNotification object:nil];
+                    });
+                });
+            }
         }
     }
     
@@ -303,6 +316,20 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     
     if (outFolders) *outFolders = folders;
     if (outFiles) *outFiles = files;
+}
+
+/// Scans a vault subdirectory directly from the filesystem and returns all folders and files.
+- (void)vaultContentsAtPath:(NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
+    NSString *basePath = vaultDir();
+    NSString *fullPath = relPath.length ? [basePath stringByAppendingPathComponent:relPath] : basePath;
+    [self scanDirectory:fullPath basePath:basePath relPrefix:relPath isVault:YES folders:outFolders files:outFiles];
+}
+
+/// Scans the Downloads directory directly from the filesystem and returns all folders and files.
+- (void)downloadsContentsAtPath:(NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
+    NSString *basePath = documentsDir();
+    NSString *fullPath = relPath.length ? [basePath stringByAppendingPathComponent:relPath] : basePath;
+    [self scanDirectory:fullPath basePath:basePath relPrefix:relPath isVault:NO folders:outFolders files:outFiles];
 }
 
 #pragma mark Folders
