@@ -103,13 +103,36 @@
         self.thumb.image = img;
         self.thumb.contentMode = UIViewContentModeScaleAspectFill;
     } else {
-        self.thumb.image = [UIImage systemImageNamed:item.audio ? @"waveform" : @"film"];
+        // Choose icon by file type
+        NSString *ext = item.fileName.pathExtension.lowercaseString;
+        NSSet *videoExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv"]];
+        NSSet *audioExts = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+        NSSet *imageExts = [NSSet setWithArray:@[@"jpg", @"jpeg", @"png", @"gif", @"bmp", @"webp", @"heic", @"tiff"]];
+        NSSet *docExts = [NSSet setWithArray:@[@"pdf", @"doc", @"docx", @"txt", @"rtf", @"pages"]];
+        NSSet *archiveExts = [NSSet setWithArray:@[@"zip", @"rar", @"7z", @"tar", @"gz"]];
+        
+        NSString *iconName = @"doc";
+        if ([videoExts containsObject:ext]) iconName = @"film";
+        else if ([audioExts containsObject:ext]) iconName = @"waveform";
+        else if ([imageExts containsObject:ext]) iconName = @"photo";
+        else if ([docExts containsObject:ext]) iconName = @"doc.text";
+        else if ([archiveExts containsObject:ext]) iconName = @"doc.zipper";
+        
+        self.thumb.image = [UIImage systemImageNamed:iconName];
         self.thumb.contentMode = UIViewContentModeCenter;
     }
     self.titleLabel.text = item.title;
-    NSMutableArray *bits = [NSMutableArray arrayWithObject:item.res.length ? item.res : @"Video"];
+    NSString *typeLabel = @"File";
+    NSString *ext = item.fileName.pathExtension.lowercaseString;
+    NSSet *videoExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv"]];
+    NSSet *audioExts = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+    if ([videoExts containsObject:ext]) typeLabel = item.res.length ? item.res : @"Video";
+    else if ([audioExts containsObject:ext]) typeLabel = @"Audio";
+    else if (ext.length) typeLabel = ext.uppercaseString;
+    
+    NSMutableArray *bits = [NSMutableArray arrayWithObject:typeLabel];
     [bits addObject:[NSByteCountFormatter stringFromByteCount:item.bytes countStyle:NSByteCountFormatterCountStyleFile]];
-    if (item.site.length) [bits addObject:item.site];
+    if (item.site.length && ![item.site isEqualToString:ext.uppercaseString]) [bits addObject:item.site];
     self.metaLabel.text = [bits componentsJoinedByString:@" · "];
     NSString *d = VGDuration(item.duration);
     self.durationLabel.text = d;
@@ -1424,7 +1447,19 @@ NSString *const VGSelectModeDidChangeNotification = @"VGSelectModeDidChange";
         [self presentViewController:a animated:YES completion:nil];
         return;
     }
-    [VGActions play:self.items[ip.row] from:self];
+    VGItem *item = self.items[ip.row];
+    NSString *ext = item.fileName.pathExtension.lowercaseString;
+    NSSet *playableExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv",
+                                                 @"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+    if ([playableExts containsObject:ext]) {
+        [VGActions play:item from:self];
+    } else {
+        // Non-media file: share/open with other apps
+        UIActivityViewController *avc = [[UIActivityViewController alloc] initWithActivityItems:@[item.fileURL] applicationActivities:nil];
+        avc.popoverPresentationController.sourceView = self.view;
+        avc.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 1, 1);
+        [self presentViewController:avc animated:YES completion:nil];
+    }
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tv trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)ip {

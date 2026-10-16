@@ -242,7 +242,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     }
 }
 
-/// Scans a vault subdirectory directly from the filesystem and returns its folders and media files.
+/// Scans a vault subdirectory directly from the filesystem and returns all folders and files.
 - (void)vaultContentsAtPath:(NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *basePath = vaultDir();
@@ -251,8 +251,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     NSMutableArray<VGFolder *> *folders = [NSMutableArray array];
     NSMutableArray<VGItem *> *files = [NSMutableArray array];
     
-    NSSet *mediaExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv",
-                                               @"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+    NSSet *videoExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv"]];
     NSSet *audioExts = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
     
     NSArray *entries = [fm contentsOfDirectoryAtPath:fullPath error:nil];
@@ -274,7 +273,6 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
             [folders addObject:f];
         } else {
             NSString *ext = name.pathExtension.lowercaseString;
-            if (![mediaExts containsObject:ext]) continue;
             
             // Build relative path from vault root for fileName
             NSString *relName = relPath.length ? [relPath stringByAppendingPathComponent:name] : name;
@@ -282,7 +280,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
             VGItem *item = [VGItem new];
             item.fileName = relName;
             item.title = [name stringByDeletingPathExtension];
-            item.site = @"";
+            item.site = ext.length ? ext.uppercaseString : @"File";
             item.res = @"";
             item.duration = 0;
             item.bytes = [attrs fileSize];
