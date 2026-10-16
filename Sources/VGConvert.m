@@ -1,5 +1,4 @@
-#import "VGConvert.h"
-#include "vgconvert.h"
+#import "vgconvert.h"
 
 @interface VGConvert ()
 @property (atomic) BOOL cancelled;
