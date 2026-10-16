@@ -161,10 +161,10 @@ extern NSString *const VGTaskFinishedNotification;
 - (void)copyItemToDownloads:(VGItem *)item completion:(void (^)(NSString *_Nullable error))completion;
 /// Moves a download into or out of the Private Vault.
 - (void)setItem:(VGItem *)item inVault:(BOOL)vault;
-/// Whether vault files are visible in the iOS Files app (stored in Documents/vault/ instead of Application Support/vault/).
+/// Whether vault files are visible in the iOS Files app (via a Documents/vault symlink to Documents/.vault/).
 @property (class, nonatomic) BOOL vaultVisible;
-/// Moves all vault files between the hidden and visible locations when the setting changes.
-+ (void)migrateVaultVisibility;
+/// One-time migration: moves old vault files from Application Support/vault/ or Documents/vault/ to Documents/.vault/.
++ (void)migrateLegacyVaultIfNeeded;
 /// Whether the browser uses a desktop User-Agent (Mac Safari) instead of the default mobile one.
 @property (class, nonatomic) BOOL desktopMode;
 /// A queue-ready option for playlist downloads: the engine picks each video's own best match.

@@ -59,29 +59,17 @@ static NSString *supportPath(NSString *name) {
     return [dir stringByAppendingPathComponent:name];
 }
 
-/// Private Vault 2.0 files live outside Documents, so they don't show in the Files app.
-/// When vaultVisible is YES, files are stored in Documents/vault/ so they appear in Files.
+/// Private Vault 2.0 files always live in Documents/.vault/ (hidden from Files app by leading dot).
+/// When vaultVisible is YES, a symlink Documents/vault -> Documents/.vault/ is created so Files app can see it.
 static NSString *vaultDir(void) {
-    NSString *base;
-    if (VGEngine.vaultVisible) {
-        base = [documentsDir() stringByAppendingPathComponent:@"vault"];
-    } else {
-        base = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"vault"];
-    }
+    NSString *base = [documentsDir() stringByAppendingPathComponent:@".vault"];
     [NSFileManager.defaultManager createDirectoryAtPath:base withIntermediateDirectories:YES attributes:@{NSFileProtectionKey: NSFileProtectionComplete} error:nil];
     return base;
 }
 
-/// The alternate vault directory (the one not currently in use), used for migration.
-static NSString *vaultDirAlternate(void) {
-    NSString *base;
-    if (VGEngine.vaultVisible) {
-        base = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"vault"];
-    } else {
-        base = [documentsDir() stringByAppendingPathComponent:@"vault"];
-    }
-    [NSFileManager.defaultManager createDirectoryAtPath:base withIntermediateDirectories:YES attributes:@{NSFileProtectionKey: NSFileProtectionComplete} error:nil];
-    return base;
+/// The symlink path used to make vault visible in Files app.
+static NSString *vaultLinkPath(void) {
+    return [documentsDir() stringByAppendingPathComponent:@"vault"];
 }
 
 static BOOL isAudioKind(NSString *k) {
@@ -206,6 +194,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
 
 - (void)start {
     [self watchNetwork];
+    [VGEngine migrateLegacyVaultIfNeeded];  // one-time migration to Documents/.vault/
     [self loadLibrary];
     [[VGPython shared] start];
     [self resumePending];
@@ -377,31 +366,54 @@ static NSString *cleanFolderName(NSString *name) {
     if (current == visible) return;
     [[NSUserDefaults standardUserDefaults] setBool:visible forKey:@"vaultVisibleInFiles"];
     [[NSUserDefaults standardUserDefaults] synchronize];
-    [self migrateVaultVisibility];
+    
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *linkPath = vaultLinkPath();
+    NSString *targetPath = vaultDir();
+    
+    if (visible) {
+        // Create symlink so Files app can see the vault
+        [fm removeItemAtPath:linkPath error:nil];  // remove if exists
+        [fm createSymbolicLinkAtPath:linkPath withDestinationPath:targetPath error:nil];
+    } else {
+        // Remove symlink, .vault remains hidden from Files app
+        [fm removeItemAtPath:linkPath error:nil];
+    }
 }
 
-+ (void)migrateVaultVisibility {
+/// One-time migration: move old vault files from Application Support/vault/ or Documents/vault/ to Documents/.vault/
++ (void)migrateLegacyVaultIfNeeded {
     NSFileManager *fm = NSFileManager.defaultManager;
-    // At this point vaultDir() returns the NEW location, vaultDirAlternate() returns the OLD one.
-    NSString *fromDir = vaultDirAlternate();
-    NSString *toDir = vaultDir();
-    NSError *e = nil;
-    NSArray *files = [fm contentsOfDirectoryAtPath:fromDir error:&e];
-    if (!files) return;
-    for (NSString *f in files) {
-        NSString *src = [fromDir stringByAppendingPathComponent:f];
-        NSString *dst = [toDir stringByAppendingPathComponent:f];
-        // If destination already exists, rename to avoid clobbering
-        NSString *finalDst = dst;
-        int n = 2;
-        while ([fm fileExistsAtPath:finalDst]) {
-            finalDst = [NSString stringWithFormat:@"%@ (%d).%@", [dst stringByDeletingPathExtension], n, dst.pathExtension];
-            n++;
+    NSString *newDir = vaultDir();
+    
+    // Check old locations
+    NSArray *oldPaths = @[
+        [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"vault"],
+        [documentsDir() stringByAppendingPathComponent:@"vault"],
+    ];
+    
+    for (NSString *oldDir in oldPaths) {
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:oldDir isDirectory:&isDir] || !isDir) continue;
+        // Skip if it's a symlink (already migrated)
+        NSDictionary *attrs = [fm attributesOfItemAtPath:oldDir error:nil];
+        if ([attrs[NSFileType] isEqualToString:NSFileTypeSymbolicLink]) continue;
+        
+        NSArray *files = [fm contentsOfDirectoryAtPath:oldDir error:nil];
+        for (NSString *f in files) {
+            NSString *src = [oldDir stringByAppendingPathComponent:f];
+            NSString *dst = [newDir stringByAppendingPathComponent:f];
+            // If destination already exists, rename to avoid clobbering
+            NSString *finalDst = dst;
+            int n = 2;
+            while ([fm fileExistsAtPath:finalDst]) {
+                finalDst = [NSString stringWithFormat:@"%@ (%d).%@", [dst stringByDeletingPathExtension], n, dst.pathExtension];
+                n++;
+            }
+            [fm moveItemAtPath:src toPath:finalDst error:nil];
         }
-        [fm moveItemAtPath:src toPath:finalDst error:nil];
+        [fm removeItemAtPath:oldDir error:nil];
     }
-    // Remove old empty directory
-    [fm removeItemAtPath:fromDir error:nil];
 }
 
 + (BOOL)desktopMode {
