@@ -1,0 +1,151 @@
+name: Build VidGrab IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+  PYTHON_VERSION: "3.14"
+  FFMPEG_VERSION: "7.1.1"
+  LAME_VERSION: "3.100"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl make gcc g++ pkg-config libxml2-dev libssl-dev zlib1g-dev bzip2 libbz2-dev xz-utils
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+      - name: Download iOS 16.5 SDK
+        run: |
+          cd "$THEOS/sdks"
+          curl -L -o iPhoneOS16.5.sdk.tar.xz "https://github.com/xybp888/iOS-SDKs/releases/download/iOS-SDKs/iPhoneOS16.5.sdk.tar.xz"
+          tar xf iPhoneOS16.5.sdk.tar.xz
+          rm iPhoneOS16.5.sdk.tar.xz
+          ls -la
+
+      - name: Cache FFmpeg/LAME
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: vendor/ffmpeg-ios
+          key: ffmpeg-${{ env.FFMPEG_VERSION }}-lame-${{ env.LAME_VERSION }}-ios16.5-arm64
+
+      - name: Build FFmpeg + LAME
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          chmod +x scripts/build-ffmpeg.sh
+          bash scripts/build-ffmpeg.sh "$(pwd)/vendor/ffmpeg-ios"
+
+      - name: Download Python.xcframework
+        run: |
+          mkdir -p vendor/pyios
+          cd vendor/pyios
+          # BeeWare Python-Apple-support - try multiple release tag formats
+          for tag in "3.14.0" "3.14" "3.14.0-r1"; do
+            URL="https://github.com/beeware/Python-Apple-support/releases/download/${tag}/Python-3.14-iOS-support.tar.gz"
+            echo "Trying $URL"
+            if curl -fL -o Python-support.tar.gz "$URL"; then
+              echo "Downloaded from $tag"
+              break
+            fi
+          done
+          tar xzf Python-support.tar.gz
+          rm -f Python-support.tar.gz
+          # Find xcframework
+          XCFW=$(find . -name "Python.xcframework" -type d | head -1)
+          if [ -z "$XCFW" ]; then
+            echo "ERROR: Python.xcframework not found"
+            find . -maxdepth 3 -type d
+            exit 1
+          fi
+          echo "PYTHON_XCFRAMEWORK=$(pwd)/$XCFW" >> $GITHUB_ENV
+          echo "Found: $XCFW"
+
+      - name: Setup Python.framework for Theos
+        run: |
+          mkdir -p vendor/ios-arm64
+          cp -R "$PYTHON_XCFRAMEWORK/ios-arm64/Python.framework" vendor/ios-arm64/
+          ls -la vendor/ios-arm64/Python.framework/
+
+      - name: Install yt-dlp and dependencies
+        run: |
+          mkdir -p app_packages
+          uv pip install --target app_packages --python 3.14 yt-dlp certifi requests urllib3 idna charset-normalizer websockets brotli
+          # Download yt-dlp source and repack as zip (assemble.py expects yt_dlp/ + yt_dlp_ejs/)
+          curl -L -o /tmp/yt-dlp-src.tar.gz "https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.tar.gz"
+          cd /tmp && tar xzf yt-dlp-src.tar.gz
+          cd yt-dlp-master
+          python3 -c "
+          import zipfile, os
+          with zipfile.ZipFile('$GITHUB_WORKSPACE/Resources/yt-dlp.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+              for root, dirs, files in os.walk('.'):
+                  for f in files:
+                      full = os.path.join(root, f)
+                      arc = os.path.relpath(full, '.')
+                      if arc.startswith(('yt_dlp/', 'yt_dlp_ejs/')):
+                          z.write(full, arc)
+          print('Created yt-dlp.zip')
+          "
+          echo "YTDLP_ZIP=$(pwd)/Resources/yt-dlp.zip" >> $GITHUB_ENV
+          echo "APP_PACKAGES=$(pwd)/app_packages" >> $GITHUB_ENV
+
+      - name: Find ldid
+        run: |
+          LDID_PATH=$(find "$THEOS" -name "ldid" -type f 2>/dev/null | head -1)
+          if [ -z "$LDID_PATH" ]; then
+            echo "ldid not found, building from source"
+            cd "$THEOS"
+            git clone https://github.com/theos/ldid.git toolchain/ldid-src
+            cd toolchain/ldid-src
+            make -j$(nproc)
+            mkdir -p linux/iphone/bin
+            cp ldid linux/iphone/bin/
+            LDID_PATH="$THEOS/toolchain/ldid-src/ldid"
+          fi
+          echo "LDID=$LDID_PATH" >> $GITHUB_ENV
+          echo "ldid: $LDID_PATH"
+
+      - name: Build VidGrab
+        run: |
+          export FFMPEG_DIR="$(pwd)/vendor/ffmpeg-ios"
+          export PYFW_DIR="$(pwd)/vendor/ios-arm64"
+          make FINALPACKAGE=1 2>&1 | tail -50
+
+      - name: Assemble IPA
+        run: |
+          export PYTHON_XCFRAMEWORK="$PYTHON_XCFRAMEWORK"
+          export YTDLP_ZIP="$YTDLP_ZIP"
+          export APP_PACKAGES="$APP_PACKAGES"
+          export LDID="$LDID"
+          export PYTHON3_BIN=$(uv run python -c "import sys; print(sys.executable)")
+          python3 assemble.py 2>&1 | tail -30
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VidGrab.ipa
+          path: VidGrab.ipa
+          retention-days: 30
