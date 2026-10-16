@@ -1,3 +1,69 @@
+// VidGrab converter C API.
+#ifndef VGCONVERT_C_H
+#define VGCONVERT_C_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define VG_OK        0
+#define VG_ERROR     1
+#define VG_CANCELLED 2
+
+typedef struct {
+    char video[64];
+    char audio[64];
+    char container[64];
+    int width;
+    int height;
+    double duration;
+} VGProbe;
+
+typedef struct {
+    char strategy[64];
+    double expectedDuration;
+    int hadAudio;
+    int discontinuities;
+    int leadingDropped;
+    int64_t videoIn;
+    int64_t videoOut;
+    int64_t videoLost;
+    char audioIn[64];
+    double gapSeconds;
+    int width;
+    int height;
+} VGMuxInfo;
+
+typedef void (*vg_progress_cb)(void *ctx, double progress);
+typedef int  (*vg_cancel_cb)(void *ctx);
+
+int vg_probe(const char *path, VGProbe *out);
+int vg_describe(const char *path, char *buf, size_t n);
+int vg_ts_scan(const char *path, char *buf, size_t n, long *scrambled, int *isTS);
+int vg_ts_clean(const char *in, const char *out, long long *junkBytes, long *pieces, int *needed,
+                vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
+int vg_audio(const char *in, const char *out, int mp3, int bitrate, const char *title, const char *artist,
+             vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
+int vg_audio_wav(const char *in, const char *out, vg_progress_cb progress, vg_cancel_cb cancel, void *ctx,
+                 char *err, size_t errlen);
+int vg_mux_mp4_ex(const char *videoIn, const char *audioIn, const char *out, VGMuxInfo *info,
+                  vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
+int vg_mux_mp4(const char *videoIn, const char *audioIn, const char *out,
+               vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
+int vg_remux_mp4(const char *in, const char *out,
+                 vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
+int vg_validate_mp4(const char *path, double expectDur, int wantAudio,
+                    char *summary, size_t sumlen, char *err, size_t errlen);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* VGCONVERT_C_H */
+
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
