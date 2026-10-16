@@ -98,7 +98,7 @@ extern NSString *const VGTaskFinishedNotification;
 @property (nonatomic, readonly) NSArray<VGItem *> *items;
 /// Scans a vault subdirectory and returns its folders and media files directly from the filesystem.
 /// path: relative path inside the vault (nil or @"" for root).
-- (void)vaultContentsAtPath:(nullable NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles;
+- (void)vaultContentsAtPath:(nullable NSString *)relPath folders:(NSArray<VGFolder *> * _Nullable * _Nonnull)outFolders files:(NSArray<VGItem *> * _Nullable * _Nonnull)outFiles;
 /// Queued, running and failed downloads, oldest first.
 @property (nonatomic, readonly) NSArray<VGTask *> *tasks;
 /// Downloads still to finish (queued + running).
