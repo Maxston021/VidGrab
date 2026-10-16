@@ -242,52 +242,70 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     }
 }
 
-/// Real-time sync: scans the vault directory and imports any media files not yet in the library.
-/// Call this whenever the vault screen appears so files added via Files app / Shortcuts show up immediately.
-- (void)syncVaultWithFilesystem {
+/// Scans a vault subdirectory directly from the filesystem and returns its folders and media files.
+- (void)vaultContentsAtPath:(NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
     NSFileManager *fm = NSFileManager.defaultManager;
-    NSString *vaultPath = vaultDir();
-    NSArray *vaultFiles = [fm contentsOfDirectoryAtPath:vaultPath error:nil];
-    if (!vaultFiles.count) return;
+    NSString *basePath = vaultDir();
+    NSString *fullPath = relPath.length ? [basePath stringByAppendingPathComponent:relPath] : basePath;
+    
+    NSMutableArray<VGFolder *> *folders = [NSMutableArray array];
+    NSMutableArray<VGItem *> *files = [NSMutableArray array];
     
     NSSet *mediaExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv",
                                                @"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
-    NSMutableSet *knownFiles = [NSMutableSet set];
-    for (VGItem *i in self.library) if (i.vault) [knownFiles addObject:i.fileName];
+    NSSet *audioExts = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
     
-    BOOL changed = NO;
-    
-    for (NSString *fname in vaultFiles) {
-        if ([knownFiles containsObject:fname]) continue;
-        NSString *ext = fname.pathExtension.lowercaseString;
-        if (![mediaExts containsObject:ext]) continue;
+    NSArray *entries = [fm contentsOfDirectoryAtPath:fullPath error:nil];
+    for (NSString *name in entries) {
+        if ([name hasPrefix:@"."]) continue;  // skip hidden files
+        NSString *entryPath = [fullPath stringByAppendingPathComponent:name];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:entryPath isDirectory:&isDir]) continue;
         
-        NSString *fullPath = [vaultPath stringByAppendingPathComponent:fname];
-        NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
-        if (!attrs) continue;
+        NSDictionary *attrs = [fm attributesOfItemAtPath:entryPath error:nil];
         
-        VGItem *item = [VGItem new];
-        item.fileName = fname;
-        item.title = [fname stringByDeletingPathExtension];
-        item.site = @"Imported";
-        item.res = @"";
-        item.duration = 0;
-        item.bytes = [attrs fileSize];
-        item.audio = [[NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]] containsObject:ext];
-        item.photos = NO;
-        item.date = attrs.fileModificationDate ?: [NSDate date];
-        item.vault = YES;
-        item.folderID = nil;
-        item.favorite = NO;
-        
-        [self.library addObject:item];
-        [knownFiles addObject:fname];
-        changed = YES;
+        if (isDir) {
+            VGFolder *f = [VGFolder new];
+            f.identifier = relPath.length ? [relPath stringByAppendingPathComponent:name] : name;
+            f.name = name;
+            f.colorHex = @"0A84FF";
+            f.date = attrs.fileModificationDate ?: [NSDate date];
+            f.vault = YES;
+            [folders addObject:f];
+        } else {
+            NSString *ext = name.pathExtension.lowercaseString;
+            if (![mediaExts containsObject:ext]) continue;
+            
+            // Build relative path from vault root for fileName
+            NSString *relName = relPath.length ? [relPath stringByAppendingPathComponent:name] : name;
+            
+            VGItem *item = [VGItem new];
+            item.fileName = relName;
+            item.title = [name stringByDeletingPathExtension];
+            item.site = @"";
+            item.res = @"";
+            item.duration = 0;
+            item.bytes = [attrs fileSize];
+            item.audio = [audioExts containsObject:ext];
+            item.photos = NO;
+            item.date = attrs.fileModificationDate ?: [NSDate date];
+            item.vault = YES;
+            item.folderID = nil;
+            item.favorite = NO;
+            [files addObject:item];
+        }
     }
     
-    if (changed) {
-        [self saveLibrary];
-    }
+    // Sort: folders first, then files; both by name
+    [folders sortUsingComparator:^NSComparisonResult(VGFolder *a, VGFolder *b) {
+        return [a.name localizedStandardCompare:b.name];
+    }];
+    [files sortUsingComparator:^NSComparisonResult(VGItem *a, VGItem *b) {
+        return [a.title localizedStandardCompare:b.title];
+    }];
+    
+    if (outFolders) *outFolders = folders;
+    if (outFiles) *outFiles = files;
 }
 
 #pragma mark Folders

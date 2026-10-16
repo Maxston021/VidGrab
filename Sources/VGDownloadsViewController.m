@@ -327,6 +327,8 @@ enum { kSecFolders = 0, kSecTasks = 1, kSecItems = 2 };
 
 @interface VGDownloadsViewController () <UITableViewDataSource, UITableViewDelegate, PHPickerViewControllerDelegate, UIDocumentPickerDelegate, UISearchResultsUpdating>
 @property (nonatomic) BOOL vaultMode;
+/// Current subdirectory path inside the vault (nil or @"" for root). Used only when vaultMode=YES.
+@property (nonatomic, copy, nullable) NSString *vaultCurrentPath;
 @property (nonatomic, copy) NSString *searchText;
 @property (nonatomic) NSInteger secretTaps;
 @property (nonatomic) CFAbsoluteTime lastSecretTap;
@@ -577,6 +579,14 @@ enum { kSecFolders = 0, kSecTasks = 1, kSecItems = 2 };
     if (i != NSNotFound && i > 0) [nav popToViewController:nav.viewControllers[i - 1] animated:NO];
 }
 
+/// Go up one directory in the vault filesystem view.
+- (void)vaultGoBack {
+    if (!self.vaultCurrentPath.length) return;
+    self.vaultCurrentPath = [self.vaultCurrentPath stringByDeletingLastPathComponent];
+    if (!self.vaultCurrentPath.length) self.vaultCurrentPath = nil;
+    [self reload];
+}
+
 - (void)moveItem:(VGItem *)item toVault:(BOOL)vault {
     [[VGEngine shared] setItem:item inVault:vault];
     [[UINotificationFeedbackGenerator new] notificationOccurred:UINotificationFeedbackTypeSuccess];
@@ -626,33 +636,72 @@ enum { kSecFolders = 0, kSecTasks = 1, kSecItems = 2 };
         [self.navigationController popViewControllerAnimated:YES];
         return;
     }
-    // Real-time sync: import any media files placed in the vault via Files app / Shortcuts.
-    if (self.vaultMode) [[VGEngine shared] syncVaultWithFilesystem];
+    
     NSMutableArray *mine = [NSMutableArray array];
     NSUInteger locked = 0, shown = 0;
     long long shownBytes = 0;
-    for (VGItem *i in [VGEngine shared].items) {
-        if (i.vault) locked++;
-        if (i.vault != self.vaultMode) continue;
-        shown++;
-        shownBytes += i.bytes;
-        // The main list holds only videos that are not in a folder; a folder screen holds just its own.
-        if (self.folder) { if (![i.folderID isEqualToString:self.folder.identifier]) continue; }
-        else if ([[VGEngine shared] folderWithID:i.folderID]) continue;
-        if (self.searchText.length && [[@[i.title ?: @"", i.site ?: @"", i.artist ?: @""] componentsJoinedByString:@" "] rangeOfString:self.searchText options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch].location == NSNotFound) continue;
-        [mine addObject:i];
+    
+    if (self.vaultMode) {
+        // Vault mode: read directly from filesystem, no database.
+        NSArray<VGFolder *> *fsFolders = nil;
+        NSArray<VGItem *> *fsFiles = nil;
+        [[VGEngine shared] vaultContentsAtPath:self.vaultCurrentPath folders:&fsFolders files:&fsFiles];
+        
+        // Apply search filter
+        if (self.searchText.length) {
+            NSMutableArray<VGFolder *> *ff = [NSMutableArray array];
+            for (VGFolder *f in fsFolders) if ([f.name rangeOfString:self.searchText options:NSCaseInsensitiveSearch].location != NSNotFound) [ff addObject:f];
+            fsFolders = ff;
+            NSMutableArray<VGItem *> *fi = [NSMutableArray array];
+            for (VGItem *i in fsFiles) if ([i.title rangeOfString:self.searchText options:NSCaseInsensitiveSearch].location != NSNotFound) [fi addObject:i];
+            fsFiles = fi;
+        }
+        
+        self.folders = fsFolders;
+        self.items = fsFiles;
+        self.tasks = @[];
+        locked = fsFiles.count;
+        shown = fsFiles.count;
+        shownBytes = [[fsFiles valueForKeyPath:@"@sum.bytes"] longLongValue];
+        
+        // Update title and back button to show current path
+        if (!self.selecting) {
+            if (self.vaultCurrentPath.length) {
+                self.title = self.vaultCurrentPath.lastPathComponent;
+                // Show back button to parent directory
+                UIBarButtonItem *back = [[UIBarButtonItem alloc] initWithTitle:@"‹ 返回" style:UIBarButtonItemStylePlain target:self action:@selector(vaultGoBack)];
+                [back setTitleTextAttributes:@{NSFontAttributeName: VGFont(17, UIFontWeightSemibold)} forState:UIControlStateNormal];
+                self.navigationItem.leftBarButtonItem = back;
+            } else {
+                self.title = @"Private Vault 2.0";
+                self.navigationItem.leftBarButtonItem = nil;
+            }
+        }
+    } else {
+        for (VGItem *i in [VGEngine shared].items) {
+            if (i.vault) locked++;
+            if (i.vault != self.vaultMode) continue;
+            shown++;
+            shownBytes += i.bytes;
+            // The main list holds only videos that are not in a folder; a folder screen holds just its own.
+            if (self.folder) { if (![i.folderID isEqualToString:self.folder.identifier]) continue; }
+            else if ([[VGEngine shared] folderWithID:i.folderID]) continue;
+            if (self.searchText.length && [[@[i.title ?: @"", i.site ?: @"", i.artist ?: @""] componentsJoinedByString:@" "] rangeOfString:self.searchText options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch].location == NSNotFound) continue;
+            [mine addObject:i];
+        }
+        self.items = mine;
+        self.tasks = self.folder ? @[] : [VGEngine shared].tasks;
+        NSArray<VGFolder *> *allFolders = self.folder ? @[] : [VGEngine shared].folders;
+        if (self.searchText.length) {
+            NSMutableArray *m = [NSMutableArray array];
+            for (VGFolder *f in allFolders) if ([f.name rangeOfString:self.searchText options:NSCaseInsensitiveSearch].location != NSNotFound) [m addObject:f];
+            allFolders = m;
+        }
+        self.folders = allFolders;
+        if (self.folder && !self.selecting) self.title = [[VGEngine shared] folderWithID:self.folder.identifier].name;
     }
+    
     [self.storageCard refreshWithVidGrabBytes:[VGEngine shared].totalBytes];
-    self.items = mine;
-    self.tasks = (self.vaultMode || self.folder) ? @[] : [VGEngine shared].tasks;
-    NSArray<VGFolder *> *allFolders = self.folder ? @[] : (self.vaultMode ? [VGEngine shared].vaultFolders : [VGEngine shared].folders);
-    if (self.searchText.length) {
-        NSMutableArray *m = [NSMutableArray array];
-        for (VGFolder *f in allFolders) if ([f.name rangeOfString:self.searchText options:NSCaseInsensitiveSearch].location != NSNotFound) [m addObject:f];
-        allFolders = m;
-    }
-    self.folders = allFolders;
-    if (self.folder && !self.selecting) self.title = [[VGEngine shared] folderWithID:self.folder.identifier].name;
     if (self.vaultButton) {
         UIButtonConfiguration *c = self.vaultButton.configuration;
         c.attributedTitle = [[NSAttributedString alloc] initWithString:@"Private Vault 2.0" attributes:@{NSFontAttributeName: VGFont(16, UIFontWeightBold)}];
@@ -1297,8 +1346,21 @@ NSString *const VGSelectModeDidChangeNotification = @"VGSelectModeDidChange";
     if (ip.section == kSecFolders) {
         VGFolderCell *c = [tv dequeueReusableCellWithIdentifier:@"f" forIndexPath:ip];
         VGFolder *f = self.folders[ip.row];
-        NSArray *inside = [[VGEngine shared] itemsInFolder:f];
-        [c configure:f count:inside.count bytes:[[inside valueForKeyPath:@"@sum.bytes"] longLongValue]];
+        NSUInteger count = 0;
+        long long bytes = 0;
+        if (self.vaultMode) {
+            // Vault mode: scan the subdirectory directly
+            NSArray<VGFolder *> *subFolders = nil;
+            NSArray<VGItem *> *subFiles = nil;
+            [[VGEngine shared] vaultContentsAtPath:f.identifier folders:&subFolders files:&subFiles];
+            count = subFiles.count;
+            bytes = [[subFiles valueForKeyPath:@"@sum.bytes"] longLongValue];
+        } else {
+            NSArray *inside = [[VGEngine shared] itemsInFolder:f];
+            count = inside.count;
+            bytes = [[inside valueForKeyPath:@"@sum.bytes"] longLongValue];
+        }
+        [c configure:f count:count bytes:bytes];
         c.more.menu = [self menuForFolder:f];
         c.contentView.alpha = self.selecting ? 0.35 : 1;
         return c;
@@ -1336,10 +1398,17 @@ NSString *const VGSelectModeDidChangeNotification = @"VGSelectModeDidChange";
     if (self.selecting) { [self updateSelection]; return; }
     [tv deselectRowAtIndexPath:ip animated:YES];
     if (ip.section == kSecFolders) {
-        VGDownloadsViewController *v = [VGDownloadsViewController new];
-        v.vaultMode = self.vaultMode;
-        v.folder = self.folders[ip.row];
-        [self.navigationController pushViewController:v animated:YES];
+        if (self.vaultMode) {
+            // Vault mode: navigate into the subdirectory in place
+            VGFolder *f = self.folders[ip.row];
+            self.vaultCurrentPath = f.identifier;
+            [self reload];
+        } else {
+            VGDownloadsViewController *v = [VGDownloadsViewController new];
+            v.vaultMode = self.vaultMode;
+            v.folder = self.folders[ip.row];
+            [self.navigationController pushViewController:v animated:YES];
+        }
         return;
     }
     if (ip.section == kSecTasks) {
