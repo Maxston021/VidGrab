@@ -168,7 +168,7 @@ static BOOL isAudioKind(NSString *k) {
 
 #pragma mark - Engine
 
-@interface VGEngine () <WKNavigationDelegate>
+@interface VGEngine ()
 @property (nonatomic, strong) NSMutableArray<VGItem *> *library;
 @property (nonatomic, strong) NSMutableArray<VGFolder *> *folderList;
 @property (nonatomic, strong) NSMutableArray<VGTask *> *queue;
@@ -177,10 +177,6 @@ static BOOL isAudioKind(NSString *k) {
 @property (nonatomic, strong) NSMutableString *convLog;   // recent conversion steps, for Copy details
 @property (nonatomic) NSUInteger heavyRunning;             // re-encodes in progress (they share the phone's video encoder)
 @property (nonatomic, strong) NSMutableArray *heavyWaiting;
-@property (nonatomic, strong) WKWebView *douyinWebView;
-@property (nonatomic, copy) void (^douyinCompletion)(VGVideo *_Nullable, NSString *_Nullable);
-@property (nonatomic, strong) NSTimer *douyinPollTimer;
-@property (nonatomic) NSInteger douyinPollCount;
 @end
 
 @implementation VGEngine
@@ -706,141 +702,7 @@ static NSString *baseDomain(NSString *host) {
     }];
 }
 
-#pragma mark - Douyin resolver (hidden WKWebView)
-
-- (void)fetchDouyin:(NSString *)url completion:(void (^)(VGVideo *_Nullable, NSString *_Nullable))completion {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (!self.douyinWebView) {
-            WKWebViewConfiguration *cfg = [WKWebViewConfiguration new];
-            cfg.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
-            self.douyinWebView = [[WKWebView alloc] initWithFrame:CGRectMake(0, -1000, 375, 812) configuration:cfg];
-            self.douyinWebView.navigationDelegate = self;
-            self.douyinWebView.customUserAgent = @"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1";
-            // Add to window so it can load
-            UIWindow *w = UIApplication.sharedApplication.keyWindow ?: UIApplication.sharedApplication.windows.firstObject;
-            [w addSubview:self.douyinWebView];
-        }
-        self.douyinCompletion = completion;
-        self.douyinPollCount = 0;
-        [self.douyinPollTimer invalidate];
-        NSURLRequest *req = [NSURLRequest requestWithURL:[NSURL URLWithString:url] cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:30];
-        [self.douyinWebView loadRequest:req];
-    });
-}
-
-- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-    if (webView != self.douyinWebView) return;
-    // Start polling for video data
-    self.douyinPollCount = 0;
-    [self.douyinPollTimer invalidate];
-    self.douyinPollTimer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(_douyinPoll) userInfo:nil repeats:YES];
-}
-
-- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    if (webView != self.douyinWebView) return;
-    [self _douyinFail:[NSString stringWithFormat:@"Page load failed: %@", error.localizedDescription]];
-}
-
-- (void)_douyinPoll {
-    self.douyinPollCount++;
-    if (self.douyinPollCount > 20) { // 20 seconds timeout
-        [self _douyinFail:@"Timed out waiting for video data"];
-        return;
-    }
-    // JavaScript: try multiple ways to extract video URL
-    NSString *js = @
-    "(function() {"
-    "  var result = {urls: [], title: '', duration: 0};"
-    "  // 1. Check video elements"
-    "  var videos = document.querySelectorAll('video');"
-    "  for (var i = 0; i < videos.length; i++) {"
-    "    if (videos[i].src && videos[i].src.indexOf('http') === 0) result.urls.push(videos[i].src);"
-    "    if (videos[i].currentSrc) result.urls.push(videos[i].currentSrc);"
-    "  }"
-    "  // 2. Check performance entries for video requests"
-    "  try {"
-    "    var entries = performance.getEntriesByType('resource');"
-    "    for (var i = 0; i < entries.length; i++) {"
-    "      var u = entries[i].name;"
-    "      if (u && (u.indexOf('douyinvod') >= 0 || u.indexOf('.mp4') >= 0 || u.indexOf('m3u8') >= 0)) {"
-    "        if (result.urls.indexOf(u) < 0) result.urls.push(u);"
-    "      }"
-    "    }"
-    "  } catch(e) {}"
-    "  // 3. Try to find title"
-    "  var titleEl = document.querySelector('title');"
-    "  if (titleEl) result.title = titleEl.textContent;"
-    "  // 4. Check for RENDER_DATA / _ROUTER_DATA"
-    "  try {"
-    "    if (window._ROUTER_DATA) {"
-    "      var s = JSON.stringify(window._ROUTER_DATA);"
-    "      var m = s.match(/https?:\\\\/\\\\/[^\"\\\\s]+douyinvod[^\"\\\\s]+/g);"
-    "      if (m) { for (var i = 0; i < m.length; i++) { if (result.urls.indexOf(m[i]) < 0) result.urls.push(m[i]); } }"
-    "    }"
-    "  } catch(e) {}"
-    "  return JSON.stringify(result);"
-    "})()";
-    [self.douyinWebView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
-        if (error || ![result isKindOfClass:NSString.class]) return;
-        NSData *d = [(NSString *)result dataUsingEncoding:NSUTF8StringEncoding];
-        if (!d) return;
-        NSDictionary *info = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
-        if (![info isKindOfClass:NSDictionary.class]) return;
-        NSArray *urls = info[@"urls"];
-        if ([urls isKindOfClass:NSArray.class] && urls.count > 0) {
-            [self _douyinSucceed:info];
-        }
-    }];
-}
-
-- (void)_douyinSucceed:(NSDictionary *)info {
-    [self.douyinPollTimer invalidate];
-    self.douyinPollTimer = nil;
-    void (^completion)(VGVideo *, NSString *) = self.douyinCompletion;
-    self.douyinCompletion = nil;
-    if (!completion) return;
-
-    NSArray *urls = info[@"urls"];
-    if (![urls isKindOfClass:NSArray.class] || urls.count == 0) {
-        completion(nil, @"No video URL found");
-        return;
-    }
-    // Pick the best URL (prefer non-m3u8, longest URL = higher quality)
-    NSString *bestUrl = nil;
-    for (NSString *u in urls) {
-        if (![u isKindOfClass:NSString.class]) continue;
-        if ([u containsString:@".m3u8"]) continue;
-        if (!bestUrl || u.length > bestUrl.length) bestUrl = u;
-    }
-    if (!bestUrl) bestUrl = urls.firstObject;
-
-    VGVideo *v = [VGVideo new];
-    v.url = bestUrl;
-    v.title = [info[@"title"] isKindOfClass:NSString.class] && [info[@"title"] length] ? info[@"title"] : @"Douyin video";
-    v.site = @"Douyin";
-    v.extra = @"{\"headers\":{\"Referer\":\"https://www.douyin.com/\",\"User-Agent\":\"Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15\"}}";
-    VGOption *opt = [VGOption new];
-    opt.identifier = bestUrl;
-    opt.res = @"Original";
-    opt.format = @"MP4";
-    v.options = @[opt];
-    completion(v, nil);
-}
-
-- (void)_douyinFail:(NSString *)error {
-    [self.douyinPollTimer invalidate];
-    self.douyinPollTimer = nil;
-    void (^completion)(VGVideo *, NSString *) = self.douyinCompletion;
-    self.douyinCompletion = nil;
-    if (completion) completion(nil, error);
-}
-
 - (void)fetch:(NSString *)url extra:(NSDictionary *)extra completion:(void (^)(VGVideo *, NSString *))completion {
-    // Douyin requires a real browser environment for API signatures; use hidden WKWebView
-    if (url && ([[url lowercaseString] containsString:@"douyin.com"] || [[url lowercaseString] containsString:@"iesdouyin.com"])) {
-        [self fetchDouyin:url completion:completion];
-        return;
-    }
     NSString *extraJSON = @"";
     if ([extra isKindOfClass:NSDictionary.class] && extra.count && [NSJSONSerialization isValidJSONObject:extra]) {
         NSData *d = [NSJSONSerialization dataWithJSONObject:extra options:0 error:nil];

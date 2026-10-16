@@ -167,8 +167,6 @@ extern NSString *const VGTaskFinishedNotification;
 + (void)migrateVaultVisibility;
 /// Whether the browser uses a desktop User-Agent (Mac Safari) instead of the default mobile one.
 @property (class, nonatomic) BOOL desktopMode;
-/// Resolve a Douyin link using a hidden WKWebView (bypasses API signature requirements).
-- (void)fetchDouyin:(NSString *)url completion:(void (^)(VGVideo *_Nullable video, NSString *_Nullable error))completion;
 /// A queue-ready option for playlist downloads: the engine picks each video's own best match.
 /// quality: @"best", @"1080", @"720", @"480" or @"mp3".
 + (VGOption *)presetOption:(NSString *)quality;
