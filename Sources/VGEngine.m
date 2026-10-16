@@ -60,11 +60,28 @@ static NSString *supportPath(NSString *name) {
 }
 
 /// Private Vault 2.0 files live outside Documents, so they don't show in the Files app.
+/// When vaultVisible is YES, files are stored in Documents/vault/ so they appear in Files.
 static NSString *vaultDir(void) {
-    NSString *base = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject;
-    NSString *dir = [base stringByAppendingPathComponent:@"vault"];
-    [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:@{NSFileProtectionKey: NSFileProtectionComplete} error:nil];
-    return dir;
+    NSString *base;
+    if (VGEngine.vaultVisible) {
+        base = [documentsDir() stringByAppendingPathComponent:@"vault"];
+    } else {
+        base = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"vault"];
+    }
+    [NSFileManager.defaultManager createDirectoryAtPath:base withIntermediateDirectories:YES attributes:@{NSFileProtectionKey: NSFileProtectionComplete} error:nil];
+    return base;
+}
+
+/// The alternate vault directory (the one not currently in use), used for migration.
+static NSString *vaultDirAlternate(void) {
+    NSString *base;
+    if (VGEngine.vaultVisible) {
+        base = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"vault"];
+    } else {
+        base = [documentsDir() stringByAppendingPathComponent:@"vault"];
+    }
+    [NSFileManager.defaultManager createDirectoryAtPath:base withIntermediateDirectories:YES attributes:@{NSFileProtectionKey: NSFileProtectionComplete} error:nil];
+    return base;
 }
 
 static BOOL isAudioKind(NSString *k) {
@@ -347,6 +364,44 @@ static NSString *cleanFolderName(NSString *name) {
     item.folderID = nil;   // folders belong to one place; it starts loose in the new one
     if (![oldThumb isEqualToString:[item thumbPath]]) [fm moveItemAtPath:oldThumb toPath:[item thumbPath] error:nil];
     [self saveLibrary];
+}
+
+#pragma mark - Vault visibility setting
+
++ (BOOL)vaultVisible {
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"vaultVisibleInFiles"];
+}
+
++ (void)setVaultVisible:(BOOL)visible {
+    BOOL current = [self vaultVisible];
+    if (current == visible) return;
+    [[NSUserDefaults standardUserDefaults] setBool:visible forKey:@"vaultVisibleInFiles"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [self migrateVaultVisibility];
+}
+
++ (void)migrateVaultVisibility {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    // At this point vaultDir() returns the NEW location, vaultDirAlternate() returns the OLD one.
+    NSString *fromDir = vaultDirAlternate();
+    NSString *toDir = vaultDir();
+    NSError *e = nil;
+    NSArray *files = [fm contentsOfDirectoryAtPath:fromDir error:&e];
+    if (!files) return;
+    for (NSString *f in files) {
+        NSString *src = [fromDir stringByAppendingPathComponent:f];
+        NSString *dst = [toDir stringByAppendingPathComponent:f];
+        // If destination already exists, rename to avoid clobbering
+        NSString *finalDst = dst;
+        int n = 2;
+        while ([fm fileExistsAtPath:finalDst]) {
+            finalDst = [NSString stringWithFormat:@"%@ (%d).%@", [dst stringByDeletingPathExtension], n, dst.pathExtension];
+            n++;
+        }
+        [fm moveItemAtPath:src toPath:finalDst error:nil];
+    }
+    // Remove old empty directory
+    [fm removeItemAtPath:fromDir error:nil];
 }
 
 

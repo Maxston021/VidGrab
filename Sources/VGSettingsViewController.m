@@ -134,7 +134,7 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
         case VGSectionInterface: return 2;
         case VGSectionLanguage: return 1;
         case VGSectionBackup: return 2;
-        case VGSectionVault: return [VGVaultLock usesPasscode] ? 2 : 1;
+        case VGSectionVault: return [VGVaultLock usesPasscode] ? 3 : 2;
         default: return 6;   // About: version, GitHub, jailbreak repo, sideload source, check for updates, credits
     }
 }
@@ -216,7 +216,7 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
     if (section == VGSectionBackup)
         return @"Back up saves your settings, theme, language, browser favorites and saved playlists to one file. Restore loads that file after reinstalling or on another phone. Your downloaded videos and audio, vault passcode and website sign-ins are never included, so they can't be restored from a backup.";
     if (section == VGSectionVault)
-        return @"Choose a passcode, Face ID, or both. With both, either one opens the vault, so you're never locked out.";
+        return @"Choose a passcode, Face ID, or both. With both, either one opens the vault, so you're never locked out.\n\n\"Show vault files in Files app\" moves vault files into the app's Documents folder so they appear in the iOS Files app. Turn it off to hide them again. Existing files are moved automatically when you toggle this.";
     return nil;
 }
 
@@ -524,7 +524,17 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
         return c;
     }
     if (ip.section == VGSectionVault) {
-        if (ip.row == 1) return [self cellWithTitle:@"Change passcode" value:nil icon:@"key" tint:nil];
+        if (ip.row == 2) return [self cellWithTitle:@"Change passcode" value:nil icon:@"key" tint:nil];
+        if (ip.row == 1) {
+            UITableViewCell *c = [self cellWithTitle:@"Show vault files in Files app" value:nil icon:@"folder" tint:nil];
+            UISwitch *sw = [UISwitch new];
+            sw.on = VGEngine.vaultVisible;
+            sw.onTintColor = VGAccent;
+            [sw addTarget:self action:@selector(vaultVisibleChanged:) forControlEvents:UIControlEventValueChanged];
+            c.accessoryView = sw;
+            c.selectionStyle = UITableViewCellSelectionStyleNone;
+            return c;
+        }
         UITableViewCell *c = [self cellWithTitle:@"Lock with" value:[VGVaultLock methodDescription] icon:@"lock.fill" tint:nil];
         c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         return c;
@@ -585,7 +595,7 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
     else if (ip.section == VGSectionBackup && row == 0) [VGSettingsBackup exportFrom:self];
     else if (ip.section == VGSectionBackup && row == 1) [VGSettingsBackup importFrom:self completion:^{ [tv reloadData]; }];
     else if (ip.section == VGSectionVault && row == 0) [VGVaultLock changeLockFrom:self completion:^{ [tv reloadData]; }];
-    else if (ip.section == VGSectionVault && row == 1) [VGVaultLock changePasscodeFrom:self completion:^{ [tv reloadData]; }];
+    else if (ip.section == VGSectionVault && row == 2) [VGVaultLock changePasscodeFrom:self completion:^{ [tv reloadData]; }];
     else if (ip.section == VGSectionAbout && row == 5) [self.navigationController pushViewController:[VGCreditsViewController new] animated:YES];
     else if (ip.section == VGSectionAbout && row == 4) [VGUpdater checkNowFrom:self];
     else if (ip.section == VGSectionAbout && (row == 2 || row == 3)) [self copyLinkForRow:row];
@@ -815,6 +825,10 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
 }
 
 - (void)filesOnlyChanged:(UISwitch *)sw { VGDownloadDefaults.filesOnly = sw.on; }
+
+- (void)vaultVisibleChanged:(UISwitch *)sw {
+    VGEngine.vaultVisible = sw.on;
+}
 
 - (void)wifiOnlyChanged:(UISwitch *)sw {
     VGDownloadDefaults.wifiOnly = sw.on;
