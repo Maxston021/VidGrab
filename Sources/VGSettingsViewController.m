@@ -46,7 +46,7 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
     self.tableView.backgroundColor = VGScreen;
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
                                                                                            target:self action:@selector(done)];
-    self.tableView.tableHeaderView = [self coffeeHeader];
+    self.tableView.tableHeaderView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, CGFLOAT_MIN)];
     // Explanations stay hidden until the exclamation button is pressed. The one exception: on phones
     // without a jailbreak, Floating progress is greyed out, and the note says why.
     self.openNotes = [NSMutableIndexSet indexSet];
@@ -131,7 +131,7 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
         case VGSectionGestures: return 6;
         case VGSectionSubtitles: return 6;
         case VGSectionAudio: return 3;
-        case VGSectionInterface: return 2;
+        case VGSectionInterface: return 3;
         case VGSectionLanguage: return 1;
         case VGSectionBackup: return 2;
         case VGSectionVault: return [VGVaultLock usesPasscode] ? 3 : 2;
@@ -210,13 +210,13 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
     if (section == VGSectionSubtitles)
         return @"Auto subtitles listen to the video on your phone and write what is said in English, whatever the language. Nothing is uploaded and no account is needed. The speech model downloads once, only when you turn this on. It uses extra battery and warms the phone while it works, and older phones can fall behind the video, so Fast is the safe choice. Accuracy drops with music, background noise and rare languages. In the player, turn it on from the CC button.";
     if (section == VGSectionInterface)
-        return @"iPad layout swaps the bottom tab bar for a list on the left side, with the page next to it, and only shows on iPad. Haptic feedback gives a small tap on the phone when you switch tabs, flip a switch, or a download finishes.";
+        return @"iPad layout swaps the bottom tab bar for a list on the left side, with the page next to it, and only shows on iPad. Haptic feedback gives a small tap on the phone when you switch tabs, flip a switch, or a download finishes. 桌面端网页模式让浏览器使用 Mac Safari 的 User-Agent，网站会显示桌面版布局；关闭后恢复移动端网页。切换后重新打开浏览页生效。";
     if (section == VGSectionAudio)
         return @"Crossfade: Gapless starts the next song the moment one ends. Seconds blend the end of one song into the start of the next. It only applies in the Library music player. With Find cover art online on, VidGrab looks up each new audio download (MP3, M4A, WAV, FLAC) on the internet and uses its album picture, and fills in a missing artist and album. If nothing matches, the picture from the video is kept. You can also search by hand: Library > hold an audio file > Edit audio info > Find cover art online. Only the song name and artist are sent for the search.";
     if (section == VGSectionBackup)
         return @"Back up saves your settings, theme, language, browser favorites and saved playlists to one file. Restore loads that file after reinstalling or on another phone. Your downloaded videos and audio, vault passcode and website sign-ins are never included, so they can't be restored from a backup.";
     if (section == VGSectionVault)
-        return @"Choose a passcode, Face ID, or both. With both, either one opens the vault, so you're never locked out.\n\n\"Show vault files in Files app\" moves vault files into the app's Documents folder so they appear in the iOS Files app. Turn it off to hide them again. Existing files are moved automatically when you toggle this.";
+        return @"选择密码、Face ID 或两者都选。两者都选时，任意一种都可以打开保险库，不会被锁在外面。\n\n「在文件 App 中显示保险库文件」会将保险库文件移动到 App 的 Documents 文件夹中，这样它们就会出现在 iOS 的「文件」App 里。关闭后会重新隐藏。切换时，已有文件会自动移动。";
     return nil;
 }
 
@@ -445,17 +445,22 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
             c.selectionStyle = UITableViewCellSelectionStyleNone;
             return c;
         }
-        if (NO) {
-            NSString *ch = VGLocalize.choice;
-            UITableViewCell *c = [self cellWithTitle:@"Language" value:[ch isEqualToString:@"auto"] ? VGT(@"Auto") : [VGLocalize nameForChoice:ch] icon:@"globe" tint:nil];
-            c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        if (ip.row == 1) {
+            UITableViewCell *c = [self cellWithTitle:@"Haptic feedback" value:nil icon:@"hand.tap" tint:nil];
+            UISwitch *sw = [UISwitch new];
+            sw.on = VGHaptics.enabled;
+            sw.onTintColor = VGAccent;
+            [sw addTarget:self action:@selector(hapticsChanged:) forControlEvents:UIControlEventValueChanged];
+            c.accessoryView = sw;
+            c.selectionStyle = UITableViewCellSelectionStyleNone;
             return c;
         }
-        UITableViewCell *c = [self cellWithTitle:@"Haptic feedback" value:nil icon:@"hand.tap" tint:nil];
+        // ip.row == 2: 桌面端网页模式
+        UITableViewCell *c = [self cellWithTitle:@"桌面端网页模式" value:nil icon:@"desktopcomputer" tint:nil];
         UISwitch *sw = [UISwitch new];
-        sw.on = VGHaptics.enabled;
+        sw.on = VGEngine.desktopMode;
         sw.onTintColor = VGAccent;
-        [sw addTarget:self action:@selector(hapticsChanged:) forControlEvents:UIControlEventValueChanged];
+        [sw addTarget:self action:@selector(desktopModeChanged:) forControlEvents:UIControlEventValueChanged];
         c.accessoryView = sw;
         c.selectionStyle = UITableViewCellSelectionStyleNone;
         return c;
@@ -526,7 +531,7 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
     if (ip.section == VGSectionVault) {
         if (ip.row == 2) return [self cellWithTitle:@"Change passcode" value:nil icon:@"key" tint:nil];
         if (ip.row == 1) {
-            UITableViewCell *c = [self cellWithTitle:@"Show vault files in Files app" value:nil icon:@"folder" tint:nil];
+            UITableViewCell *c = [self cellWithTitle:@"在文件 App 中显示保险库文件" value:nil icon:@"folder" tint:nil];
             UISwitch *sw = [UISwitch new];
             sw.on = VGEngine.vaultVisible;
             sw.onTintColor = VGAccent;
@@ -828,6 +833,10 @@ typedef NS_ENUM(NSInteger, VGSection) { VGSectionLanguage, VGSectionEngine, VGSe
 
 - (void)vaultVisibleChanged:(UISwitch *)sw {
     VGEngine.vaultVisible = sw.on;
+}
+
+- (void)desktopModeChanged:(UISwitch *)sw {
+    VGEngine.desktopMode = sw.on;
 }
 
 - (void)wifiOnlyChanged:(UISwitch *)sw {

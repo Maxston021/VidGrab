@@ -44,8 +44,8 @@ cd "lame-${LAME_VERSION}"
 
 HOSTCC=gcc \
 CC="$TOOLCHAIN/clang" \
-CFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=$MIN_IOS -O3" \
-LDFLAGS="-arch arm64 -isysroot $SDK -miphoneos-version-min=$MIN_IOS" \
+CFLAGS="-target arm64-apple-ios${MIN_IOS} -arch arm64 -isysroot $SDK -miphoneos-version-min=$MIN_IOS -O3" \
+LDFLAGS="-target arm64-apple-ios${MIN_IOS} -arch arm64 -isysroot $SDK -miphoneos-version-min=$MIN_IOS" \
 ./configure \
     --host=arm-apple-darwin \
     --enable-static \
@@ -66,15 +66,27 @@ curl -L -o ffmpeg.tar.bz2 "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.
 tar xjf ffmpeg.tar.bz2
 cd "ffmpeg-${FFMPEG_VERSION}"
 
+# Create symlinks for prefixed tool names that Theos ar expects
+for tool in ar ranlib nm strip ld; do
+    if [ -f "$TOOLCHAIN/$tool" ] && [ ! -f "$TOOLCHAIN/aarch64-apple-darwin14-$tool" ]; then
+        ln -sf "$tool" "$TOOLCHAIN/aarch64-apple-darwin14-$tool"
+    fi
+done
+
+export CFLAGS="-target arm64-apple-ios${MIN_IOS} -arch arm64 -isysroot $SDK -miphoneos-version-min=$MIN_IOS -O3 -std=gnu11 -I$OUTPUT_DIR/include"
+export LDFLAGS="-target arm64-apple-ios${MIN_IOS} -arch arm64 -isysroot $SDK -miphoneos-version-min=$MIN_IOS -L$OUTPUT_DIR/lib"
+
 ./configure \
     --enable-cross-compile \
     --arch=arm64 \
     --target-os=darwin \
     --cc="$TOOLCHAIN/clang" \
     --as="$TOOLCHAIN/clang" \
+    --nm="$TOOLCHAIN/nm" \
+    --ar="$TOOLCHAIN/ar" \
+    --ranlib="$TOOLCHAIN/ranlib" \
+    --strip="$TOOLCHAIN/strip" \
     --sysroot="$SDK" \
-    --extra-cflags="-arch arm64 -miphoneos-version-min=$MIN_IOS -O3 -I$OUTPUT_DIR/include" \
-    --extra-ldflags="-arch arm64 -miphoneos-version-min=$MIN_IOS -L$OUTPUT_DIR/lib" \
     --enable-static \
     --disable-shared \
     --disable-programs \
@@ -84,13 +96,13 @@ cd "ffmpeg-${FFMPEG_VERSION}"
     --disable-postproc \
     --disable-avfilter \
     --disable-network \
+    --disable-asm \
     --disable-everything \
     --enable-muxer=mp4,mp3,wav,flac,ogg,matroska,adts \
     --enable-demuxer=mov,mp3,wav,flac,ogg,matroska,hls,mpegts,aac,adts \
     --enable-decoder=h264,hevc,aac,mp3,flac,vorbis,opus,alac \
-    --enable-encoder=aac,libmp3lame,flac,opus,alac \
+    --enable-encoder=aac,flac,opus,alac \
     --enable-protocol=file \
-    --enable-libmp3lame \
     --enable-neon \
     --prefix="$OUTPUT_DIR"
 

@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>VidGrab+</string>
+	<string>DouYuan</string>
 	<key>CFBundleExecutable</key>
 	<string>VidGrab</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.t4mag1.vidgrab</string>
+	<string>com.t4mag1.douyuan</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>VidGrab+</string>
+	<string>DouYuan</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -45,10 +45,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.t4mag1.vidgrab</string>
+			<string>com.t4mag1.douyuan</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>vidgrab2</string>
+				<string>douyuan2</string>
 			</array>
 		</dict>
 	</array>
@@ -100,7 +100,7 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>apple-magnifier</string>
-		<string>vidgrabbubble</string>
+		<string>douyuanbubble</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

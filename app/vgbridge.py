@@ -682,8 +682,38 @@ def fetch(url, cache_dir, cookiefile='', extra=''):
     _set_cookie(cookiefile)
     try:
         ex = _extra(extra)
+
+        # Douyin (抖音): try dedicated parser first (HTML extraction, yt-dlp, API fallback)
+        if _is_douyin(url):
+            info = _douyin_fetch(url, cache_dir, cookiefile)
+            if info:
+                _infos[url] = info
+                opts = _options(info)
+                if opts:
+                    return json.dumps({
+                        'title': info.get('title') or 'Untitled video',
+                        'uploader': info.get('uploader') or 'Douyin',
+                        'site': 'Douyin',
+                        'thumbnail': info.get('thumbnail'),
+                        'duration': info.get('duration') or 0,
+                        'options': opts,
+                    })
+            # If dedicated parser failed, resolve short URL before falling back to generic yt-dlp
+            if 'v.douyin.com' in url or 'iesdouyin.com' in url or '/share/' in url:
+                cookies = _load_douyin_cookies(cookiefile)
+                _, resolved = _douyin_extract_from_html(url, _douyin_headers(), cookies)
+                if resolved and resolved != url:
+                    url = resolved
+                else:
+                    resolved = _resolve_douyin_short_url(url, _douyin_headers(), cookies)
+                    if resolved and resolved != url:
+                        url = resolved
+
         params = _params(cache_dir, **_cookie_params(cookiefile, _is_youtube(url, None)))
         params['extract_flat'] = 'in_playlist'     # playlists: list the videos without opening each one
+        # Douyin (抖音): apply mobile web headers so the site returns the video page
+        if _is_douyin(url) and not ex.get('headers'):
+            params['http_headers'] = _douyin_headers()
         _apply_extra(params, ex)
         with yt_dlp.YoutubeDL(params) as ydl:
             info = _extract(ydl, url, ex)
@@ -800,6 +830,9 @@ def stream(url, cache_dir, cookiefile='', extra='', max_h=0, audio_only=0):
         info = _infos.get(url)
         if not info:
             params = _params(cache_dir, **_cookie_params(cookiefile, _is_youtube(url, None)))
+            # Douyin (抖音): apply mobile web headers
+            if _is_douyin(url) and not ex.get('headers'):
+                params['http_headers'] = _douyin_headers()
             _apply_extra(params, ex)
             with yt_dlp.YoutubeDL(params) as ydl:
                 info = _extract(ydl, url, ex)
@@ -862,6 +895,9 @@ def live(url, cache_dir, cookiefile='', extra='', height=0):
         info = _infos.get(url)
         if not info:
             params = _params(cache_dir, **_cookie_params(cookiefile, _is_youtube(url, None)))
+            # Douyin (抖音): apply mobile web headers
+            if _is_douyin(url) and not ex.get('headers'):
+                params['http_headers'] = _douyin_headers()
             _apply_extra(params, ex)
             with yt_dlp.YoutubeDL(params) as ydl:
                 info = _extract(ydl, url, ex)
@@ -898,6 +934,9 @@ def link(url, option_id, cache_dir, cookiefile='', extra=''):
         info = _infos.get(url)
         if not info:
             params = _params(cache_dir, **_cookie_params(cookiefile, _is_youtube(url, None)))
+            # Douyin (抖音): apply mobile web headers
+            if _is_douyin(url) and not ex.get('headers'):
+                params['http_headers'] = _douyin_headers()
             _apply_extra(params, ex)
             with yt_dlp.YoutubeDL(params) as ydl:
                 info = _extract(ydl, url, ex)
@@ -941,6 +980,9 @@ def links(url, option_id, cache_dir, cookiefile='', extra=''):
         info = _infos.get(url)
         if not info:
             params = _params(cache_dir, **_cookie_params(cookiefile, _is_youtube(url, None)))
+            # Douyin (抖音): apply mobile web headers
+            if _is_douyin(url) and not ex.get('headers'):
+                params['http_headers'] = _douyin_headers()
             _apply_extra(params, ex)
             with yt_dlp.YoutubeDL(params) as ydl:
                 info = _extract(ydl, url, ex)
@@ -1010,6 +1052,361 @@ def _is_youtube(url, info):
     return bool(re.search(r'(youtube\.com|youtu\.be|youtube-nocookie\.com)', url, re.I))
 
 
+def _is_douyin(url):
+    """Detect Douyin (抖音) links including short share URLs."""
+    return bool(re.search(r'(douyin\.com|iesdouyin\.com|douyin\.iesdouyin\.com|v\.douyin\.com)', url, re.I))
+
+
+def _douyin_headers():
+    """Headers that Douyin accepts for video extraction (mobile web client)."""
+    return {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1',
+        'Referer': 'https://www.douyin.com/',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+    }
+
+
+def _gen_ms_token():
+    """Generate a random msToken (184 chars) as fallback."""
+    import random as _r
+    import string as _s
+    return ''.join(_r.choice(_s.ascii_letters + _s.digits) for _ in range(182)) + '=='
+
+
+def _extract_douyin_id(url):
+    """Extract aweme_id from Douyin URL."""
+    m = re.search(r'/video/(\d+)', url)
+    if m:
+        return m.group(1)
+    m = re.search(r'modal_id=(\d+)', url)
+    if m:
+        return m.group(1)
+    m = re.search(r'/note/(\d+)', url)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _douyin_extract_from_html(url, headers, cookies=None):
+    """Extract video info directly from Douyin share page HTML (no API signature needed)."""
+    from urllib.request import Request, urlopen
+    import json as _json
+
+    try:
+        req_headers = dict(headers)
+        if cookies:
+            req_headers['Cookie'] = '; '.join(f'{k}={v}' for k, v in cookies.items())
+        req = Request(url, headers=req_headers, method='GET')
+        resp = urlopen(req, timeout=20)
+        html = resp.read().decode('utf-8', errors='ignore')
+        resp.close()
+
+        if not html:
+            return None, url
+
+        final_url = resp.geturl() if hasattr(resp, 'geturl') else url
+
+        # Try to extract RENDER_DATA (URL-encoded JSON in script tag)
+        render_data = None
+        m = re.search(r'<script[^>]*id="RENDER_DATA"[^>]*>([^<]+)</script>', html)
+        if m:
+            try:
+                from urllib.parse import unquote
+                render_data = _json.loads(unquote(m.group(1)))
+            except Exception:
+                pass
+
+        # Try window._ROUTER_DATA
+        if not render_data:
+            m = re.search(r'window\._ROUTER_DATA\s*=\s*(\{.*?\});', html, re.DOTALL)
+            if m:
+                try:
+                    render_data = _json.loads(m.group(1))
+                except Exception:
+                    pass
+
+        # Try SSR_HYDRATED_DATA or similar
+        if not render_data:
+            for pattern in [r'window\._SSR_HYDRATED_DATA\s*=\s*(\{.*?\});',
+                           r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});',
+                           r'window\.__INITIAL_PROPS__\s*=\s*(\{.*?\});']:
+                m = re.search(pattern, html, re.DOTALL)
+                if m:
+                    try:
+                        render_data = _json.loads(m.group(1))
+                        break
+                    except Exception:
+                        continue
+
+        if not render_data:
+            return None, final_url
+
+        # Navigate the JSON structure to find video info
+        aweme_detail = None
+
+        # Common paths in Douyin's data structure
+        def find_aweme(obj):
+            if isinstance(obj, dict):
+                if 'aweme_detail' in obj and isinstance(obj['aweme_detail'], dict):
+                    return obj['aweme_detail']
+                if 'video' in obj and 'aweme_id' in obj:
+                    return obj
+                for v in obj.values():
+                    result = find_aweme(v)
+                    if result:
+                        return result
+            elif isinstance(obj, list):
+                for item in obj:
+                    result = find_aweme(item)
+                    if result:
+                        return result
+            return None
+
+        aweme_detail = find_aweme(render_data)
+        if not aweme_detail:
+            return None, final_url
+
+        # Extract video info
+        video = aweme_detail.get('video') or {}
+        author = aweme_detail.get('author') or {}
+
+        # Get play addresses - prefer bit_rate (higher quality), then play_addr
+        all_urls = []
+        bit_rates = video.get('bit_rate') or []
+        for br in bit_rates:
+            br_play = br.get('play_addr') or {}
+            for u in (br_play.get('url_list') or []):
+                if u and u not in all_urls:
+                    all_urls.append(u)
+        play_addr = video.get('play_addr') or {}
+        for u in (play_addr.get('url_list') or []):
+            if u and u not in all_urls:
+                all_urls.append(u)
+
+        if not all_urls:
+            return None, final_url
+
+        # Build formats
+        formats = []
+        for i, u in enumerate(all_urls):
+            is_watermark = 'watermark=1' in u
+            fmt = {
+                'url': u,
+                'format_id': f'douyin_html_{i}',
+                'ext': 'mp4',
+                'protocol': 'https',
+                'vcodec': 'h264',
+                'acodec': 'aac',
+                'width': play_addr.get('width') or video.get('width') or 1080,
+                'height': play_addr.get('height') or video.get('height') or 1920,
+                'filesize': play_addr.get('data_size') or 0,
+                'format_note': 'watermark' if is_watermark else 'no_watermark',
+            }
+            formats.append(fmt)
+
+        info = {
+            'id': aweme_detail.get('aweme_id') or '',
+            'title': aweme_detail.get('desc') or 'Douyin Video',
+            'uploader': author.get('nickname') or '',
+            'thumbnail': (video.get('cover') or {}).get('url_list', [None])[0] if video.get('cover') else None,
+            'duration': video.get('duration') or 0,
+            'formats': formats,
+            'extractor': 'douyin',
+            'extractor_key': 'Douyin',
+            'webpage_url': final_url,
+            'http_headers': headers,
+        }
+        return info, final_url
+
+    except Exception:
+        return None, url
+
+
+def _resolve_douyin_short_url(url, headers, cookies=None):
+    """Follow short URL redirects to get the full URL with aweme_id."""
+    try:
+        from urllib.request import Request, urlopen
+        req_headers = dict(headers)
+        if cookies:
+            req_headers['Cookie'] = '; '.join(f'{k}={v}' for k, v in cookies.items())
+        req = Request(url, headers=req_headers, method='GET')
+        resp = urlopen(req, timeout=15)
+        final_url = resp.geturl()
+        # Try to read page and extract video ID from HTML if redirect didn't give full URL
+        try:
+            html = resp.read().decode('utf-8', errors='ignore')
+            resp.close()
+            # Extract aweme_id from HTML meta tags or JSON
+            m = re.search(r'aweme_id["\s:]+(\d{15,})', html)
+            if m:
+                return f'https://www.douyin.com/video/{m.group(1)}'
+            m = re.search(r'/video/(\d{15,})', html)
+            if m:
+                return f'https://www.douyin.com/video/{m.group(1)}'
+        except Exception:
+            pass
+        return final_url
+    except Exception:
+        return url
+
+
+def _douyin_extract_with_ytdlp(url, cache_dir, cookiefile, headers):
+    """Try extracting Douyin video using yt-dlp's built-in DouyinIE."""
+    try:
+        params = _params(cache_dir, **_cookie_params(cookiefile, False))
+        params['http_headers'] = headers
+        if cookiefile and os.path.exists(cookiefile):
+            params['cookiefile'] = cookiefile
+        with yt_dlp.YoutubeDL(params) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info and info.get('formats'):
+                return info
+    except Exception:
+        pass
+    return None
+
+
+def _load_douyin_cookies(cookiefile):
+    """Extract Douyin cookies from the browser cookie file (Netscape format)."""
+    cookies = {}
+    if not cookiefile or not os.path.exists(cookiefile):
+        return cookies
+    try:
+        with open(cookiefile, encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split('\t')
+                if len(parts) >= 7:
+                    domain = parts[0]
+                    name = parts[5]
+                    value = parts[6]
+                    if 'douyin' in domain or 'iesdouyin' in domain:
+                        cookies[name] = value
+    except (OSError, IndexError):
+        pass
+    return cookies
+
+
+def _douyin_api_fetch(aweme_id, headers, cookies=None):
+    """Call Douyin web API to get video detail."""
+    from urllib.request import Request, urlopen
+    from urllib.parse import urlencode
+    import json as _json
+
+    params = {
+        'aweme_id': aweme_id,
+        'aid': '6383',
+        'cookie_enabled': 'true',
+        'platform': 'PC',
+        'downlink': '10',
+        'did': '0',
+        'msToken': _gen_ms_token(),
+    }
+    api_url = 'https://www.douyin.com/aweme/v1/web/aweme/detail/?' + urlencode(params)
+    req_headers = dict(headers)
+    if cookies:
+        cookie_str = '; '.join(f'{k}={v}' for k, v in cookies.items())
+        req_headers['Cookie'] = cookie_str
+    req = Request(api_url, headers=req_headers)
+    try:
+        resp = urlopen(req, timeout=15)
+        data = _json.loads(resp.read().decode('utf-8'))
+        resp.close()
+        return data.get('aweme_detail')
+    except Exception:
+        return None
+
+
+def _douyin_to_yt_dlp_info(detail, url):
+    """Convert Douyin API detail to yt-dlp info dict format."""
+    video = detail.get('video') or {}
+    author = detail.get('author') or {}
+
+    # Get play address - prefer no-watermark
+    play_addr = video.get('play_addr') or {}
+    url_list = play_addr.get('url_list') or []
+
+    # Also check bit_rate for higher quality options
+    bit_rates = video.get('bit_rate') or []
+    all_urls = []
+    for br in bit_rates:
+        br_play = br.get('play_addr') or {}
+        br_urls = br_play.get('url_list') or []
+        for u in br_urls:
+            if u and u not in all_urls:
+                all_urls.append(u)
+    for u in url_list:
+        if u and u not in all_urls:
+            all_urls.append(u)
+
+    # Build formats list
+    formats = []
+    for i, u in enumerate(all_urls):
+        is_watermark = 'watermark=1' in u
+        fmt = {
+            'url': u,
+            'format_id': f'douyin_{i}',
+            'ext': 'mp4',
+            'protocol': 'https',
+            'vcodec': 'h264',
+            'acodec': 'aac',
+            'width': play_addr.get('width') or video.get('width') or 1080,
+            'height': play_addr.get('height') or video.get('height') or 1920,
+            'filesize': play_addr.get('data_size') or 0,
+            'format_note': 'watermark' if is_watermark else 'no_watermark',
+        }
+        formats.append(fmt)
+
+    if not formats:
+        return None
+
+    return {
+        'id': detail.get('aweme_id') or '',
+        'title': detail.get('desc') or 'Douyin Video',
+        'uploader': author.get('nickname') or '',
+        'thumbnail': (video.get('cover') or {}).get('url_list', [None])[0] if video.get('cover') else None,
+        'duration': video.get('duration') or 0,
+        'formats': formats,
+        'extractor': 'douyin',
+        'extractor_key': 'Douyin',
+        'webpage_url': url,
+        'http_headers': headers,
+    }
+
+
+def _douyin_fetch(url, cache_dir, cookiefile=''):
+    """Fetch Douyin video info: try HTML extraction first (most reliable), then yt-dlp, then API."""
+    headers = _douyin_headers()
+    cookies = _load_douyin_cookies(cookiefile)
+
+    # Step 1: Extract directly from share page HTML (no signature needed, most reliable)
+    info, full_url = _douyin_extract_from_html(url, headers, cookies)
+    if info:
+        if cookies:
+            info['http_headers']['Cookie'] = '; '.join(f'{k}={v}' for k, v in cookies.items())
+        return info
+
+    # Step 2: Try yt-dlp's built-in DouyinIE
+    info = _douyin_extract_with_ytdlp(full_url, cache_dir, cookiefile, headers)
+    if info:
+        return info
+
+    # Step 3: Fallback to direct API
+    aweme_id = _extract_douyin_id(full_url) or _extract_douyin_id(url)
+    if aweme_id:
+        detail = _douyin_api_fetch(aweme_id, headers, cookies)
+        if detail:
+            info = _douyin_to_yt_dlp_info(detail, full_url)
+            if info and cookies:
+                info['http_headers']['Cookie'] = '; '.join(f'{k}={v}' for k, v in cookies.items())
+            return info
+
+    return None
+
+
 def _clear_dir(d):
     for n in os.listdir(d):
         try:
@@ -1050,6 +1447,9 @@ def _attempt(task, url, option_id, out_dir, cache_dir, clients, cookiefile='', e
     if cookiefile:
         params['cookiefile'] = cookiefile
     extra = extra or {}
+    # Douyin (抖音): apply mobile web headers for downloads too
+    if _is_douyin(url) and not extra.get('headers'):
+        params['http_headers'] = _douyin_headers()
     _apply_extra(params, extra)
 
     try:

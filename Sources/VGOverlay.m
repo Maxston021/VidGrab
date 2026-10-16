@@ -121,7 +121,7 @@ static UIDocumentInteractionController *gDoc;
 
 + (BOOL)helperInstalled {
     if ([self starterPresent]) return YES;
-    return [UIApplication.sharedApplication canOpenURL:[NSURL URLWithString:@"vidgrabbubble://ping"]];
+    return [UIApplication.sharedApplication canOpenURL:[NSURL URLWithString:@"douyuanbubble://ping"]];
 }
 
 /// Installed with TrollStore (it leaves a marker file in the app).
@@ -190,7 +190,7 @@ static NSDate *gLastLaunch;
         Class ext = NSClassFromString(@"NSExtension");
         NSError *err = nil;
         id (*find)(id, SEL, NSString *, NSError **) = (void *)objc_msgSend;
-        id e = ext ? find(ext, NSSelectorFromString(@"extensionWithIdentifier:error:"), @"com.t4mag0.vidgrab.bubblestarter", &err) : nil;
+        id e = ext ? find(ext, NSSelectorFromString(@"extensionWithIdentifier:error:"), @"com.t4mag1.douyuan.bubblestarter", &err) : nil;
         if (!e) { [self note:[NSString stringWithFormat:@"starter extension not found by the system (%@)", err.localizedDescription ?: @"no error"]]; return; }
         void (*begin)(id, SEL, NSArray *, void (^)(NSUUID *)) = (void *)objc_msgSend;
         void (*setCancel)(id, SEL, id) = (void *)objc_msgSend;
@@ -201,7 +201,7 @@ static NSDate *gLastLaunch;
         begin(e, NSSelectorFromString(@"beginExtensionRequestWithInputItems:completion:"), @[], ^(NSUUID *u) { [VGOverlay note:u ? @"extension request sent" : @"extension request returned no id"]; });
         return;
     }
-    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"vidgrabbubble://start"] options:@{} completionHandler:nil];
+    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"douyuanbubble://start"] options:@{} completionHandler:nil];
 }
 
 /// TrollStore: ask the helper app to start the bubble service (it flashes on screen and returns to VidGrab).

@@ -76,7 +76,7 @@ typedef NS_ENUM(NSInteger, VGStep) { VGStepWelcome, VGStepLoaded, VGStepDownload
 @property (nonatomic, strong) NSMutableSet *prefetching;
 @property (nonatomic) NSInteger queueFailures;   // tracks in a row that would not load
 @property (nonatomic, weak) VGPlayerViewController *queuePlayer;
-@property (nonatomic, strong) UISegmentedControl *modeControl;   // Download or Stream
+@property (nonatomic, strong) UIButton *linkCopyButton, *streamButton;   // 复制链接 + 在线播放
 @property (nonatomic) BOOL opening;
 @property (nonatomic, strong) NSMutableArray<NSNumber *> *picked;
 @property (nonatomic) BOOL showAllRows;
@@ -416,12 +416,12 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
         [self.field.bottomAnchor constraintEqualToAnchor:box.bottomAnchor],
     ]];
 
-    self.pasteButton = VGPrimaryButton(@"Paste", @"doc.on.clipboard.fill");
+    self.pasteButton = VGPrimaryButton(@"Paste", nil);
     [self.pasteButton addTarget:self action:@selector(paste) forControlEvents:UIControlEventTouchUpInside];
-    self.findButton = VGSecondaryButton(@"Find video", @"magnifyingglass");
+    self.findButton = VGSecondaryButton(@"解析", nil);
     [self.findButton addTarget:self action:@selector(find) forControlEvents:UIControlEventTouchUpInside];
     // Clear sits between Paste and Find video: empties the link and removes the shown video.
-    self.clearRowButton = VGSecondaryButton(@"Clear", @"xmark");
+    self.clearRowButton = VGSecondaryButton(@"Clear", nil);
     UIButtonConfiguration *cc = self.clearRowButton.configuration;
     cc.contentInsets = NSDirectionalEdgeInsetsMake(14, 12, 14, 12);
     self.clearRowButton.configuration = cc;
@@ -495,7 +495,7 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
 
     UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
     layout.scrollDirection = UICollectionViewScrollDirectionHorizontal;
-    layout.itemSize = CGSizeMake(120, 128);
+    layout.itemSize = CGSizeMake(150, 72);
     layout.minimumLineSpacing = 10;
     layout.sectionInset = UIEdgeInsetsMake(0, 16, 0, 16);
     self.qualityList = [[UICollectionView alloc] initWithFrame:CGRectZero collectionViewLayout:layout];
@@ -504,9 +504,9 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
     self.qualityList.dataSource = self;
     self.qualityList.delegate = self;
     [self.qualityList registerClass:VGQualityCell.class forCellWithReuseIdentifier:@"q"];
-    [self.qualityList.heightAnchor constraintEqualToConstant:128].active = YES;
+    [self.qualityList.heightAnchor constraintEqualToConstant:72].active = YES;
 
-    self.downloadButton = VGPrimaryButton(@"Download", @"arrow.down.to.line");
+    self.downloadButton = VGPrimaryButton(@"Download", nil);
     [self.downloadButton addTarget:self action:@selector(download) forControlEvents:UIControlEventTouchUpInside];
     self.downloadCaption = [self label:VGFont(13, UIFontWeightMedium) color:VGTertiary lines:0];
     self.downloadCaption.textAlignment = NSTextAlignmentCenter;
@@ -517,15 +517,16 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
     self.notThisButton.tintColor = VGSecondary;
     [self.notThisButton.heightAnchor constraintEqualToConstant:44].active = YES;
     [self.notThisButton addTarget:self action:@selector(notThisOne) forControlEvents:UIControlEventTouchUpInside];
-    self.modeControl = [[UISegmentedControl alloc] initWithItems:@[@"Download", @"Stream"]];
-    self.modeControl.selectedSegmentIndex = [NSUserDefaults.standardUserDefaults boolForKey:@"vgStreamMode"] ? 1 : 0;
-    self.modeControl.selectedSegmentTintColor = VGAccent;
-    self.modeControl.backgroundColor = VGSurface2;
-    [self.modeControl setTitleTextAttributes:@{NSForegroundColorAttributeName: VGSecondary, NSFontAttributeName: VGFont(15, UIFontWeightSemibold)} forState:UIControlStateNormal];
-    [self.modeControl setTitleTextAttributes:@{NSForegroundColorAttributeName: VGOnAccent, NSFontAttributeName: VGFont(15, UIFontWeightBold)} forState:UIControlStateSelected];
-    [self.modeControl.heightAnchor constraintEqualToConstant:40].active = YES;
-    [self.modeControl addTarget:self action:@selector(modeChanged) forControlEvents:UIControlEventValueChanged];
-    UIView *bottom = [self padded:[self vstack:@[self.modeControl, self.downloadButton, self.downloadCaption, self.notThisButton] spacing:10] top:18 bottom:0];
+    // 复制链接 + 在线播放 两个并排按钮
+    self.linkCopyButton = VGSecondaryButton(@"复制链接", nil);
+    [self.linkCopyButton addTarget:self action:@selector(copyDirectLink) forControlEvents:UIControlEventTouchUpInside];
+    self.streamButton = VGSecondaryButton(@"在线播放", nil);
+    [self.streamButton addTarget:self action:@selector(stream) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView *actionRow = [[UIStackView alloc] initWithArrangedSubviews:@[self.linkCopyButton, self.streamButton]];
+    actionRow.axis = UILayoutConstraintAxisHorizontal;
+    actionRow.spacing = 10;
+    actionRow.distribution = UIStackViewDistributionFillEqually;
+    UIView *bottom = [self padded:[self vstack:@[actionRow, self.downloadButton, self.downloadCaption, self.notThisButton] spacing:10] top:18 bottom:0];
     self.qualitySection = [self vstack:@[[self padded:h top:16 bottom:12], self.qualityList, bottom] spacing:0];
     [self.stack addArrangedSubview:self.qualitySection];
 }
@@ -652,11 +653,11 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
         self.welcomeHero.hidden = step != VGStepWelcome;
         self.chipsSection.hidden = step != VGStepWelcome;
         self.activitySection.hidden = step != VGStepWelcome;
-        self.clipBanner.hidden = !(self.fromClipboard && (step == VGStepLoaded || step == VGStepPlaylist));
+        self.clipBanner.hidden = YES;
         self.videoHero.hidden = step == VGStepWelcome || step == VGStepPlaylist;
         self.qualitySection.hidden = step != VGStepLoaded;
         self.playlistSection.hidden = step != VGStepPlaylist;
-        self.notThisButton.hidden = !self.fromClipboard;
+        self.notThisButton.hidden = YES;
         self.progressSection.hidden = step != VGStepDownloading;
         self.doneSection.hidden = step != VGStepDone;
         for (UIView *v in self.stack.arrangedSubviews) v.alpha = v.hidden ? 0 : 1;
@@ -669,7 +670,7 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
 - (void)setFinding:(BOOL)on {
     UIButtonConfiguration *c = self.findButton.configuration;
     c.showsActivityIndicator = on;
-    c.attributedTitle = [[NSAttributedString alloc] initWithString:on ? @"Looking…" : @"Find video"
+    c.attributedTitle = [[NSAttributedString alloc] initWithString:on ? @"解析中" : @"解析"
                                                         attributes:@{NSFontAttributeName: VGFont(16, UIFontWeightBold)}];
     self.findButton.configuration = c;
     self.findButton.userInteractionEnabled = !on;
@@ -786,43 +787,31 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
     [self updateCaption];
 }
 
-- (BOOL)streamMode { return self.modeControl.selectedSegmentIndex == 1; }
-
-- (void)modeChanged {
-    [NSUserDefaults.standardUserDefaults setBool:[self streamMode] forKey:@"vgStreamMode"];
-    [self updateCaption];
-}
+- (BOOL)streamMode { return NO; }
 
 - (void)setPrimaryTitle:(NSString *)title icon:(NSString *)icon {
     UIButtonConfiguration *c = self.downloadButton.configuration;
     if (c) {
         c.attributedTitle = [[NSAttributedString alloc] initWithString:title attributes:@{NSFontAttributeName: VGFont(16, UIFontWeightBold)}];
-        c.image = [UIImage systemImageNamed:icon withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:15 weight:UIImageSymbolWeightBold]];
+        c.image = nil;
         self.downloadButton.configuration = c;
     } else {
         [self.downloadButton setTitle:title forState:UIControlStateNormal];
-        [self.downloadButton setImage:[UIImage systemImageNamed:icon] forState:UIControlStateNormal];
+        [self.downloadButton setImage:nil forState:UIControlStateNormal];
     }
 }
 
 - (void)updateCaption {
     VGOption *o = self.video.options.count > (NSUInteger)self.selected ? self.video.options[self.selected] : nil;
     if (!o) { self.downloadCaption.text = @""; return; }
-    // With a default set in Settings > Downloads, Download shows just the start button; Stream shows every quality.
-    BOOL compact = VGDownloadDefaults.skipSheet && !self.video.isPlaylist && ![self streamMode];
+    // With a default set in Settings > Downloads, Download shows just the start button.
+    BOOL compact = VGDownloadDefaults.skipSheet && !self.video.isPlaylist;
     self.qualityList.hidden = compact;
     self.qualityHeading.superview.hidden = compact;
     if (compact) {
         NSString *what = o.audio ? @"audio" : o.res;
         [self setPrimaryTitle:[NSString stringWithFormat:@"Start download \u00b7 %@", what] icon:@"arrow.down.to.line"];
-        self.downloadCaption.text = [NSString stringWithFormat:@"Your default: %@ \u00b7 %@%@. Change it in Settings > Downloads. Switch to Stream to see every quality.", what, o.format ?: @"MP4", o.sizeText.length ? [@" \u00b7 " stringByAppendingString:o.sizeText] : @""];
-        return;
-    }
-    if ([self streamMode]) {
-        [self setPrimaryTitle:(self.opening ? @"Opening…" : @"Stream") icon:@"play.fill"];
-        self.downloadCaption.text = o.audio ? @"Plays now in VidGrab's player. Nothing is saved unless you tap the download button there"
-                                            : (self.userPicked ? [NSString stringWithFormat:@"Opens right away, then switches to %@ as soon as it's ready. Tap the download button in the player to keep it", o.res]
-                                               : @"Quality adjusts by itself. Tap a quality to choose one. Tap the download button in the player to keep it");
+        self.downloadCaption.text = [NSString stringWithFormat:@"Your default: %@ \u00b7 %@%@. Change it in Settings > Downloads.", what, o.format ?: @"MP4", o.sizeText.length ? [@" \u00b7 " stringByAppendingString:o.sizeText] : @""];
         return;
     }
     [self setPrimaryTitle:@"Download" icon:@"arrow.down.to.line"];
@@ -870,7 +859,6 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
 }
 
 - (void)download {
-    if ([self streamMode]) { [self stream]; return; }
     if (!self.video || (NSUInteger)self.selected >= self.video.options.count) return;
     VGOption *opt = self.video.options[self.selected];
     self.bar.progress = 0;
@@ -905,6 +893,39 @@ static NSString *const kClipDismissed = @"vgClipboardDismissed";
     }];
     weakTask = task;
     self.task = task;
+}
+
+- (void)copyDirectLink {
+    if (!self.video) return;
+    VGOption *opt = (NSUInteger)self.selected < self.video.options.count ? self.video.options[self.selected] : nil;
+    self.linkCopyButton.enabled = NO;
+    __weak typeof(self) ws = self;
+    [[VGEngine shared] linkListFor:self.video option:opt completion:^(NSDictionary *info, NSString *error) {
+        ws.linkCopyButton.enabled = YES;
+        NSMutableArray *rows = [NSMutableArray array];
+        NSMutableSet *seen = [NSMutableSet set];
+        for (NSDictionary *e in ([info[@"items"] isKindOfClass:NSArray.class] ? info[@"items"] : @[])) {
+            NSString *u = e[@"url"];
+            if (![u isKindOfClass:NSString.class] || [seen containsObject:u]) continue;
+            [seen addObject:u];
+            [rows addObject:@{@"label": e[@"label"] ?: u, @"url": u}];
+        }
+        if (!rows.count) { [VGActions toast:@"Couldn't find a direct link" icon:@"exclamationmark.circle" in:ws.view]; return; }
+        UIAlertController *a = [UIAlertController alertControllerWithTitle:@"复制直链"
+                                                                   message:@"点击一个链接复制。如果无法播放，请尝试下一个。"
+                                                            preferredStyle:UIAlertControllerStyleActionSheet];
+        for (NSDictionary *r in rows) {
+            [a addAction:[UIAlertAction actionWithTitle:r[@"label"] style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+                UIPasteboard.generalPasteboard.string = r[@"url"];
+                [[UINotificationFeedbackGenerator new] notificationOccurred:UINotificationFeedbackTypeSuccess];
+                [VGActions toast:@"链接已复制" icon:@"link" in:ws.view];
+            }]];
+        }
+        [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+        a.popoverPresentationController.sourceView = ws.linkCopyButton;
+        a.popoverPresentationController.sourceRect = ws.linkCopyButton.bounds;
+        [ws presentViewController:a animated:YES completion:nil];
+    }];
 }
 
 - (void)cancel { if (self.task) [[VGEngine shared] cancelTask:self.task]; }

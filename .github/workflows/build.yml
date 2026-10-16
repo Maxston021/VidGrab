@@ -38,6 +38,12 @@ jobs:
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
 
+      - name: Install Theos Linux toolchain
+        run: |
+          sudo apt-get install -y libtinfo6
+          curl -sL "https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz" | tar -xJf - -C "$THEOS/toolchain/"
+          ls -la "$THEOS/toolchain/linux/iphone/bin/clang"
+
       - name: Download iOS 16.5 SDK
         run: |
           git clone --depth 1 https://github.com/theos/sdks.git /tmp/ios-sdks
@@ -62,8 +68,8 @@ jobs:
           mkdir -p vendor/pyios
           cd vendor/pyios
           # BeeWare Python-Apple-support - try multiple release tag formats
-          for tag in "3.14.0" "3.14" "3.14.0-r1"; do
-            URL="https://github.com/beeware/Python-Apple-support/releases/download/${tag}/Python-3.14-iOS-support.tar.gz"
+          for tag in "3.14-b12" "3.14-b11" "3.14-b10"; do
+            URL="https://github.com/beeware/Python-Apple-support/releases/download/${tag}/Python-3.14-iOS-support.${tag#3.14-}.tar.gz"
             echo "Trying $URL"
             if curl -fL -o Python-support.tar.gz "$URL"; then
               echo "Downloaded from $tag"
@@ -91,7 +97,7 @@ jobs:
       - name: Install yt-dlp and dependencies
         run: |
           mkdir -p app_packages
-          uv pip install --target app_packages --python 3.14 yt-dlp certifi requests urllib3 idna charset-normalizer websockets brotli
+          uv pip install --target app_packages --python 3.14 yt-dlp certifi requests urllib3 idna charset-normalizer websockets
           # Download yt-dlp source and repack as zip (assemble.py expects yt_dlp/ + yt_dlp_ejs/)
           curl -L -o /tmp/yt-dlp-src.tar.gz "https://github.com/yt-dlp/yt-dlp/archive/refs/heads/master.tar.gz"
           cd /tmp && tar xzf yt-dlp-src.tar.gz
@@ -107,8 +113,8 @@ jobs:
                           z.write(full, arc)
           print('Created yt-dlp.zip')
           "
-          echo "YTDLP_ZIP=$(pwd)/Resources/yt-dlp.zip" >> $GITHUB_ENV
-          echo "APP_PACKAGES=$(pwd)/app_packages" >> $GITHUB_ENV
+          echo "YTDLP_ZIP=$GITHUB_WORKSPACE/Resources/yt-dlp.zip" >> $GITHUB_ENV
+          echo "APP_PACKAGES=$GITHUB_WORKSPACE/app_packages" >> $GITHUB_ENV
 
       - name: Find ldid
         run: |
@@ -128,18 +134,36 @@ jobs:
 
       - name: Build VidGrab
         run: |
+          set -o pipefail
           export FFMPEG_DIR="$(pwd)/vendor/ffmpeg-ios"
           export PYFW_DIR="$(pwd)/vendor/ios-arm64"
-          make FINALPACKAGE=1 2>&1 | tail -50
+          make FINALPACKAGE=1
+          echo "=== Build output ==="
+          ls -la .theos/obj/
+          ls -la .theos/obj/VidGrab.app/ 2>&1 || echo "VidGrab.app not found"
+          file .theos/obj/VidGrab.app/VidGrab 2>&1 || echo "VidGrab binary not found"
 
       - name: Assemble IPA
         run: |
+          set -o pipefail
           export PYTHON_XCFRAMEWORK="$PYTHON_XCFRAMEWORK"
           export YTDLP_ZIP="$YTDLP_ZIP"
           export APP_PACKAGES="$APP_PACKAGES"
           export LDID="$LDID"
           export PYTHON3_BIN=$(uv run python -c "import sys; print(sys.executable)")
-          python3 assemble.py 2>&1 | tail -30
+          echo "=== Environment ==="
+          echo "PYTHON_XCFRAMEWORK=$PYTHON_XCFRAMEWORK"
+          echo "YTDLP_ZIP=$YTDLP_ZIP"
+          echo "APP_PACKAGES=$APP_PACKAGES"
+          echo "LDID=$LDID"
+          echo "PYTHON3_BIN=$PYTHON3_BIN"
+          ls -la "$APP_PACKAGES" 2>&1 | head -5
+          ls -la "$YTDLP_ZIP" 2>&1
+          ls -la .theos/obj/ 2>&1
+          echo "=== Running assemble.py ==="
+          python3 assemble.py
+          echo "=== Result ==="
+          ls -la VidGrab.ipa 2>&1
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4

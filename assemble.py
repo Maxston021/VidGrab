@@ -77,12 +77,24 @@ def main():
     with open(os.path.join(XC, 'build', 'iOS-dylib-Info-template.plist'), 'rb') as f:
         template = plistlib.load(f)
     count = 0
+    skipped = 0
     for base in (os.path.join(lib, 'python3.14', 'lib-dynload'), pk):
         for root, _, files in os.walk(base):
             for name in files:
                 if not name.endswith('.so'):
                     continue
                 full = os.path.join(root, name)
+                # Skip non-Mach-O files (e.g. Linux .so from pip packages)
+                with open(full, 'rb') as f:
+                    magic = f.read(4)
+                # Mach-O magics: big-endian 32/64, FAT big/little, little-endian 32/64
+                if magic not in (b'\xfe\xed\xfa\xce', b'\xfe\xed\xfa\xcf',
+                                 b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca',
+                                 b'\xce\xfa\xed\xfe', b'\xcf\xfa\xed\xfe'):
+                    print(f'  Skipping non-Mach-O: {name}')
+                    os.remove(full)
+                    skipped += 1
+                    continue
                 rel = os.path.relpath(full, base)
                 module = rel.split('.')[0].replace(os.sep, '.')
                 fdir = os.path.join(fw, f'{module}.framework')

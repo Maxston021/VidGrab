@@ -6,7 +6,7 @@
 #import <Security/Security.h>
 
 static NSString *const kMethodKey = @"vgVaultLock";   // "both", "passcode" or "bio"
-static NSString *const kService = @"com.t4mag0.vidgrab.vault";
+static NSString *const kService = @"com.t4mag1.douyuan.vault";
 static const NSUInteger kDigits = 6;
 
 

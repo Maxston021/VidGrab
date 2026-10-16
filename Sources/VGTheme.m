@@ -251,7 +251,7 @@ UILabel *VGWordmark(CGFloat size) {
     UIFont *f = VGFont(size, UIFontWeightBlack);
     UIFontDescriptor *d = [f.fontDescriptor fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitCondensed];
     if (d) f = [UIFont fontWithDescriptor:d size:size];
-    l.attributedText = [[NSAttributedString alloc] initWithString:@"VIDGRAB" attributes:@{
+    l.attributedText = [[NSAttributedString alloc] initWithString:@"DOUYUAN" attributes:@{
         NSFontAttributeName: f,
         NSForegroundColorAttributeName: VGLogo,
         NSKernAttributeName: @(1.5),

@@ -97,9 +97,19 @@ static NSString *const kOverlayJS = @""
     // Tell sites the real iOS version, so older iPhones get code their web engine can run.
     NSOperatingSystemVersion os = NSProcessInfo.processInfo.operatingSystemVersion;
     cfg.applicationNameForUserAgent = [NSString stringWithFormat:@"Version/%ld.%ld Safari/605.1.15", (long)os.majorVersion, (long)os.minorVersion];
+    if (VGEngine.desktopMode) {
+        // Request desktop layout via both webpage preferences and custom UA.
+        WKWebpagePreferences *prefs = [WKWebpagePreferences new];
+        prefs.preferredContentMode = WKContentModeDesktop;
+        cfg.defaultWebpagePreferences = prefs;
+    }
     cfg.websiteDataStore = WKWebsiteDataStore.defaultDataStore;  // remembers sign-ins
     [cfg.userContentController addScriptMessageHandler:self name:@"vidgrab"];
     self.web = [[WKWebView alloc] initWithFrame:CGRectZero configuration:cfg];
+    if (VGEngine.desktopMode) {
+        // Desktop Mac Safari UA — sites serve the desktop layout.
+        self.web.customUserAgent = [NSString stringWithFormat:@"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/%ld.%ld Safari/605.1.15", (long)os.majorVersion, (long)os.minorVersion];
+    }
     self.web.navigationDelegate = self;
     self.web.UIDelegate = self;
     self.web.allowsBackForwardNavigationGestures = YES;

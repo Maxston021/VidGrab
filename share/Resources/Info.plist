@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key><string>en</string>
-	<key>CFBundleDisplayName</key><string>VidGrab</string>
+	<key>CFBundleDisplayName</key><string>DouYuan</string>
 	<key>CFBundleExecutable</key><string>VGShare</string>
-	<key>CFBundleIdentifier</key><string>com.t4mag0.vidgrab.share</string>
+	<key>CFBundleIdentifier</key><string>com.t4mag1.douyuan.share</string>
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-	<key>CFBundleName</key><string>VidGrab</string>
+	<key>CFBundleName</key><string>DouYuan</string>
 	<key>CFBundlePackageType</key><string>XPC!</string>
 	<key>CFBundleShortVersionString</key><string>1.3.4</string>
 	<key>CFBundleVersion</key><string>1</string>
