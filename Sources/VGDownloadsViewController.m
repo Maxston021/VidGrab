@@ -670,7 +670,7 @@ enum { kSecFolders = 0, kSecTasks = 1, kSecItems = 2 };
         return;
     }
     
-    NSMutableArray *mine = [NSMutableArray array];
+    
     NSUInteger locked = 0, shown = 0;
     long long shownBytes = 0;
     
