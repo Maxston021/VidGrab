@@ -231,6 +231,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
     NSData *d = [NSData dataWithContentsOfFile:supportPath(@"library.json")];
     NSArray *arr = d ? [NSJSONSerialization JSONObjectWithData:d options:0 error:nil] : nil;
     NSFileManager *fm = NSFileManager.defaultManager;
+    NSMutableSet *knownFiles = [NSMutableSet set];
     for (NSDictionary *x in ([arr isKindOfClass:NSArray.class] ? arr : @[])) {
         VGItem *i = [VGItem fromDict:x];
         // Drop entries whose files were removed in the Files app.
@@ -238,7 +239,54 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
             VGFolder *fo = i.folderID ? [self folderWithID:i.folderID] : nil;
             if (i.folderID && (!fo || fo.vault != i.vault)) i.folderID = nil;   // its folder is gone, or it sits in the wrong place
             [self.library addObject:i];
+            [knownFiles addObject:i.fileName];
         }
+    }
+    // Auto-import media files placed directly into the vault via Files app / Shortcuts.
+    [self scanVaultForNewFiles:knownFiles];
+}
+
+/// Scans the vault directory for media files not yet in the library and imports them.
+- (void)scanVaultForNewFiles:(NSMutableSet *)knownFiles {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *vaultPath = vaultDir();
+    NSArray *vaultFiles = [fm contentsOfDirectoryAtPath:vaultPath error:nil];
+    if (!vaultFiles.count) return;
+    
+    NSSet *mediaExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv",
+                                               @"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+    BOOL changed = NO;
+    
+    for (NSString *fname in vaultFiles) {
+        if ([knownFiles containsObject:fname]) continue;
+        NSString *ext = fname.pathExtension.lowercaseString;
+        if (![mediaExts containsObject:ext]) continue;
+        
+        NSString *fullPath = [vaultPath stringByAppendingPathComponent:fname];
+        NSDictionary *attrs = [fm attributesOfItemAtPath:fullPath error:nil];
+        if (!attrs) continue;
+        
+        VGItem *item = [VGItem new];
+        item.fileName = fname;
+        item.title = [fname stringByDeletingPathExtension];
+        item.site = @"Imported";
+        item.res = @"";
+        item.duration = 0;
+        item.bytes = [attrs fileSize];
+        item.audio = [NSSet setWithArray:@[@"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]] containsObject:ext];
+        item.photos = NO;
+        item.date = attrs.fileModificationDate ?: [NSDate date];
+        item.vault = YES;
+        item.folderID = nil;
+        item.favorite = NO;
+        
+        [self.library addObject:item];
+        [knownFiles addObject:fname];
+        changed = YES;
+    }
+    
+    if (changed) {
+        [self saveLibrary];
     }
 }
 
