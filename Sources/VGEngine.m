@@ -72,6 +72,13 @@ static NSString *vaultLinkPath(void) {
     return [documentsDir() stringByAppendingPathComponent:@"vault"];
 }
 
+/// Downloads files live in Documents/Downloads/ (sibling to .vault/).
+static NSString *downloadsDir(void) {
+    NSString *base = [documentsDir() stringByAppendingPathComponent:@"Downloads"];
+    [NSFileManager.defaultManager createDirectoryAtPath:base withIntermediateDirectories:YES attributes:nil error:nil];
+    return base;
+}
+
 static BOOL isAudioKind(NSString *k) {
     return [k isEqualToString:@"mp3"] || [k isEqualToString:@"audio"] || [k isEqualToString:@"wav"] || [k isEqualToString:@"flac"];
 }
@@ -82,7 +89,7 @@ static BOOL isAudioKind(NSString *k) {
 
 - (NSURL *)fileURL {
     if (self.vault) return [NSURL fileURLWithPath:[vaultDir() stringByAppendingPathComponent:self.fileName]];
-    return [NSURL fileURLWithPath:[documentsDir() stringByAppendingPathComponent:self.fileName]];
+    return [NSURL fileURLWithPath:[downloadsDir() stringByAppendingPathComponent:self.fileName]];
 }
 
 - (NSString *)thumbPath {
@@ -195,6 +202,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
 - (void)start {
     [self watchNetwork];
     [VGEngine migrateLegacyVaultIfNeeded];  // one-time migration to Documents/.vault/
+    [VGEngine migrateLegacyDownloadsIfNeeded];  // one-time migration to Documents/Downloads/
     [self loadLibrary];
     [[VGPython shared] start];
     [self resumePending];
@@ -327,7 +335,7 @@ static BOOL gPathKnown, gExpensive;   // from the network monitor: mobile data o
 
 /// Scans the Downloads directory directly from the filesystem and returns all folders and files.
 - (void)downloadsContentsAtPath:(NSString *)relPath folders:(NSArray<VGFolder *> **)outFolders files:(NSArray<VGItem *> **)outFiles {
-    NSString *basePath = documentsDir();
+    NSString *basePath = downloadsDir();
     NSString *fullPath = relPath.length ? [basePath stringByAppendingPathComponent:relPath] : basePath;
     [self scanDirectory:fullPath basePath:basePath relPrefix:relPath isVault:NO folders:outFolders files:outFiles];
 }
@@ -430,7 +438,7 @@ static NSString *cleanFolderName(NSString *name) {
     if (item.vault == vault) return;
     NSFileManager *fm = NSFileManager.defaultManager;
     NSURL *from = item.fileURL;
-    NSString *dir = vault ? vaultDir() : documentsDir();
+    NSString *dir = vault ? vaultDir() : downloadsDir();
     NSString *name = item.fileName;
     // Avoid clashing with a file of the same name in the other place.
     for (int n = 2; [fm fileExistsAtPath:[dir stringByAppendingPathComponent:name]]; n++)
@@ -506,6 +514,47 @@ static NSString *cleanFolderName(NSString *name) {
     }
 }
 
+/// One-time migration: move old download files from Documents/ root to Documents/Downloads/
++ (void)migrateLegacyDownloadsIfNeeded {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    if ([d boolForKey:@"downloadsMigrated"]) return;
+    
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *newDir = downloadsDir();
+    NSString *oldDir = documentsDir();
+    
+    NSSet *mediaExts = [NSSet setWithArray:@[@"mp4", @"m4v", @"mov", @"mkv", @"avi", @"webm", @"flv", @"wmv",
+                                               @"mp3", @"m4a", @"aac", @"wav", @"flac", @"ogg", @"opus"]];
+    
+    NSArray *files = [fm contentsOfDirectoryAtPath:oldDir error:nil];
+    for (NSString *f in files) {
+        // Skip hidden files, directories, and known special items
+        if ([f hasPrefix:@"."]) continue;
+        NSString *src = [oldDir stringByAppendingPathComponent:f];
+        BOOL isDir = NO;
+        if (![fm fileExistsAtPath:src isDirectory:&isDir] || isDir) continue;
+        // Skip .vault symlink if present
+        NSDictionary *attrs = [fm attributesOfItemAtPath:src error:nil];
+        if ([attrs[NSFileType] isEqualToString:NSFileTypeSymbolicLink]) continue;
+        // Only move media files
+        NSString *ext = f.pathExtension.lowercaseString;
+        if (![mediaExts containsObject:ext]) continue;
+        
+        NSString *dst = [newDir stringByAppendingPathComponent:f];
+        // If destination already exists, rename to avoid clobbering
+        NSString *finalDst = dst;
+        int n = 2;
+        while ([fm fileExistsAtPath:finalDst]) {
+            finalDst = [NSString stringWithFormat:@"%@ (%d).%@", [dst stringByDeletingPathExtension], n, dst.pathExtension];
+            n++;
+        }
+        [fm moveItemAtPath:src toPath:finalDst error:nil];
+    }
+    
+    [d setBool:YES forKey:@"downloadsMigrated"];
+    [d synchronize];
+}
+
 + (BOOL)desktopMode {
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"desktopMode"];
 }
@@ -568,7 +617,7 @@ static NSString *cleanFolderName(NSString *name) {
 
 - (void)copyItemToDownloads:(VGItem *)item completion:(void (^)(NSString *))completion {
     NSString *ext = item.fileName.pathExtension.length ? item.fileName.pathExtension : @"mp4";
-    NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:item.title ext:ext]];
+    NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:item.title ext:ext]];
     __weak typeof(self) ws = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSError *err = nil;
@@ -643,7 +692,7 @@ static NSString *cleanFolderName(NSString *name) {
 - (void)convertAudioItem:(VGItem *)item toFormat:(NSString *)format progress:(void (^)(double))progress
               completion:(void (^)(VGItem *, NSString *))completion {
     NSString *ext = [format isEqualToString:@"m4a"] ? @"m4a" : format;
-    NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:item.title ext:ext]];
+    NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:item.title ext:ext]];
     if (item.vault) dest = [vaultDir() stringByAppendingPathComponent:[self uniqueName:item.title ext:ext]];
     VGConvert *c = [VGConvert new];
     __weak typeof(self) ws = self;
@@ -1199,7 +1248,7 @@ static NSString *resumeFile(void) { return [resumeRoot() stringByAppendingPathCo
 - (NSString *)uniqueName:(NSString *)base ext:(NSString *)ext {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *name = [NSString stringWithFormat:@"%@.%@", base, ext];
-    for (int n = 2; [fm fileExistsAtPath:[documentsDir() stringByAppendingPathComponent:name]]; n++) {
+    for (int n = 2; [fm fileExistsAtPath:[downloadsDir() stringByAppendingPathComponent:name]]; n++) {
         name = [NSString stringWithFormat:@"%@ (%d).%@", base, n, ext];
     }
     return name;
@@ -1280,7 +1329,7 @@ static NSString *noDot(NSString *s) {
 /// RENAME_EXCL never overwrites, so two downloads with the same title can't clobber each other.
 - (NSString *)installPartial:(NSString *)partial base:(NSString *)base error:(NSString **)error {
     for (int attempt = 0; attempt < 25; attempt++) {
-        NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:base ext:@"mp4"]];
+        NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:base ext:@"mp4"]];
         if (renamex_np(partial.fileSystemRepresentation, dest.fileSystemRepresentation, RENAME_EXCL) == 0) return dest;
         if (errno != EEXIST) {
             if (error) *error = [NSString stringWithFormat:@"couldn't save the finished video (%s)", strerror(errno)];
@@ -1307,7 +1356,7 @@ static NSString *noDot(NSString *s) {
         else if ([c isEqualToString:@"flv"]) ext = @"flv";
         NSString *label = labels.count > i ? labels[i] : @"";
         NSString *name = label.length ? [NSString stringWithFormat:@"%@ (%@)", base, label] : base;
-        NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:name ext:ext]];
+        NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:name ext:ext]];
         NSError *e = nil;
         if (![fm moveItemAtPath:path toPath:dest error:&e] && ![fm copyItemAtPath:path toPath:dest error:&e]) continue;
         VGItem *item = [VGItem new];
@@ -1541,13 +1590,13 @@ static NSString *noDot(NSString *s) {
         NSDictionary *p = [VGConvert probe:first];
         BOOL alreadyM4A = [fmt isEqualToString:@"m4a"] && [p[@"audio"] isEqualToString:@"aac"] && [p[@"container"] hasPrefix:@"mov"];
         if (alreadyM4A) {
-            NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:base ext:@"m4a"]];
+            NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:base ext:@"m4a"]];
             NSError *e = nil;
             [fm moveItemAtPath:first toPath:dest error:&e];
             if (e) fail(e.localizedDescription); else store(dest, NO);
             return;
         }
-        NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:base ext:fmt]];
+        NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:base ext:fmt]];
         NSString *what = [NSString stringWithFormat:@"Making %@", fmt.uppercaseString];
         (void)mp3;
         stageP(what);
@@ -1569,7 +1618,7 @@ static NSString *noDot(NSString *s) {
                     if (problem) { keepAndFail(cant(why), files, labels); return; }
                     media(@"fallback: keeping the original MP4 as it is (it plays fine)");
                     NSString *ext = first.pathExtension.lowercaseString.length ? first.pathExtension.lowercaseString : @"mp4";
-                    NSString *dest = [documentsDir() stringByAppendingPathComponent:[ws uniqueName:base ext:ext]];
+                    NSString *dest = [downloadsDir() stringByAppendingPathComponent:[ws uniqueName:base ext:ext]];
                     NSError *e = nil;
                     [fm moveItemAtPath:first toPath:dest error:&e];
                     if (e) keepAndFail(cant(e.localizedDescription), files, labels); else store(dest, NO);
@@ -1858,7 +1907,7 @@ static NSString *resolutionLabel(AVAssetTrack *track) {
     }
     if (!ext.length) ext = video ? @"mp4" : @"m4a";
 
-    NSString *dest = [documentsDir() stringByAppendingPathComponent:[self uniqueName:base ext:ext]];
+    NSString *dest = [downloadsDir() stringByAppendingPathComponent:[self uniqueName:base ext:ext]];
     NSError *err = nil;
     BOOL ok = move ? [fm moveItemAtURL:url toURL:[NSURL fileURLWithPath:dest] error:&err] : NO;
     if (!ok) { err = nil; ok = [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:dest] error:&err]; }

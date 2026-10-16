@@ -170,6 +170,7 @@ extern NSString *const VGTaskFinishedNotification;
 @property (class, nonatomic) BOOL vaultVisible;
 /// One-time migration: moves old vault files from Application Support/vault/ or Documents/vault/ to Documents/.vault/.
 + (void)migrateLegacyVaultIfNeeded;
++ (void)migrateLegacyDownloadsIfNeeded;
 /// Whether the browser uses a desktop User-Agent (Mac Safari) instead of the default mobile one.
 @property (class, nonatomic) BOOL desktopMode;
 /// A queue-ready option for playlist downloads: the engine picks each video's own best match.
