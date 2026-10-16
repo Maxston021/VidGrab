@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnullability-completeness"
+#pragma clang diagnostic ignored "-Wnullability-declspec"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -37,30 +41,32 @@ typedef struct {
     int height;
 } VGMuxInfo;
 
-typedef void (*vg_progress_cb)(void _Null_unspecified *ctx, double progress);
-typedef int  (*vg_cancel_cb)(void _Null_unspecified *ctx);
+typedef void (*vg_progress_cb)(void *ctx, double progress);
+typedef int  (*vg_cancel_cb)(void *ctx);
 
 int vg_probe(const char *path, VGProbe *out);
 int vg_describe(const char *path, char *buf, size_t n);
 int vg_ts_scan(const char *path, char *buf, size_t n, long *scrambled, int *isTS);
 int vg_ts_clean(const char *in, const char *out, long long *junkBytes, long *pieces, int *needed,
-                vg_progress_cb progress, vg_cancel_cb cancel, void _Null_unspecified *ctx, char *err, size_t errlen);
+                vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
 int vg_audio(const char *in, const char *out, int mp3, int bitrate, const char *title, const char *artist,
-             vg_progress_cb progress, vg_cancel_cb cancel, void _Null_unspecified *ctx, char *err, size_t errlen);
-int vg_audio_wav(const char *in, const char *out, vg_progress_cb progress, vg_cancel_cb cancel, void _Null_unspecified *ctx,
+             vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
+int vg_audio_wav(const char *in, const char *out, vg_progress_cb progress, vg_cancel_cb cancel, void *ctx,
                  char *err, size_t errlen);
 int vg_mux_mp4_ex(const char *videoIn, const char *audioIn, const char *out, VGMuxInfo *info,
-                  vg_progress_cb progress, vg_cancel_cb cancel, void _Null_unspecified *ctx, char *err, size_t errlen);
+                  vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
 int vg_mux_mp4(const char *videoIn, const char *audioIn, const char *out,
-               vg_progress_cb progress, vg_cancel_cb cancel, void _Null_unspecified *ctx, char *err, size_t errlen);
+               vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
 int vg_remux_mp4(const char *in, const char *out,
-                 vg_progress_cb progress, vg_cancel_cb cancel, void _Null_unspecified *ctx, char *err, size_t errlen);
+                 vg_progress_cb progress, vg_cancel_cb cancel, void *ctx, char *err, size_t errlen);
 int vg_validate_mp4(const char *path, double expectDur, int wantAudio,
                     char *summary, size_t sumlen, char *err, size_t errlen);
 
 #ifdef __cplusplus
 }
 #endif
+
+#pragma clang diagnostic pop
 
 #endif /* VGCONVERT_C_H */
 
