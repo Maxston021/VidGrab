@@ -5,10 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wnullability-completeness"
-#pragma clang diagnostic ignored "-Wnullability-declspec"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,10 +62,9 @@ int vg_validate_mp4(const char *path, double expectDur, int wantAudio,
 }
 #endif
 
-#pragma clang diagnostic pop
-
 #endif /* VGCONVERT_C_H */
 
+#ifdef __OBJC__
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -123,3 +118,4 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
+#endif /* __OBJC__ */
