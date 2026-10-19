@@ -1,0 +1,162 @@
+name: Build VidGrab IPA
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  THEOS: /root/theos
+  FFMPEG_DEST: /root/ffmpeg-ios
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang ldid libplist-dev libpng-dev \
+            libbz2-dev zlib1g-dev libxml2-dev libssl-dev uuid-dev cmake pkg-config \
+            python3 python3-pip python3-venv curl git rsync
+          pip3 install uv
+
+      - name: Cache Theos
+        id: cache-theos
+        uses: actions/cache@v4
+        with:
+          path: /root/theos
+          key: theos-linux-ios16.5
+
+      - name: Install Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --recursive https://github.com/theos/theos.git /root/theos
+          # Theos Linux toolchain (provides clang, ld, ar, ranlib, nm, strip, ldid)
+          curl -L https://github.com/theos/toolchain/releases/download/2024.08.11/toolchain-linux-ubuntu-22.04.tar.xz -o /tmp/toolchain.tar.xz
+          tar -xf /tmp/toolchain.tar.xz -C /root/theos/toolchain
+          # iOS 16.5 SDK
+          mkdir -p /root/theos/sdks
+          curl -L https://github.com/xybp888/iOS-SDKs/releases/download/iOS-SDKs/iPhoneOS16.5.sdk.tar.xz -o /tmp/sdk.tar.xz
+          tar -xf /tmp/sdk.tar.xz -C /root/theos/sdks
+
+      - name: Cache FFmpeg + LAME
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: /root/ffmpeg-ios
+          key: ffmpeg-7.1.1-lame-ios15-arm64-v2
+
+      - name: Build LAME
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /root/ffmpeg-ios/include /root/ffmpeg-ios/lib
+          curl -L https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz/download -o /tmp/lame.tar.gz
+          tar -xf /tmp/lame.tar.gz -C /tmp
+          cd /tmp/lame-3.100
+          TOOLCHAIN=/root/theos/toolchain/linux/iphone/bin
+          SDK=/root/theos/sdks/iPhoneOS16.5.sdk
+          export CC="$TOOLCHAIN/clang"
+          export CFLAGS="-target arm64-apple-ios15.0 -isysroot $SDK -O3"
+          export LDFLAGS="-target arm64-apple-ios15.0 -isysroot $SDK -fuse-ld=$TOOLCHAIN/ld"
+          ./configure --host=arm-apple-darwin --prefix=/root/ffmpeg-ios --disable-shared --enable-static \
+            --disable-frontend --disable-gtktest --disable-decoder --disable-analyzer-hooks
+          make -j$(nproc)
+          make install
+
+      - name: Build FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch n7.1.1 --depth 1 https://github.com/FFmpeg/FFmpeg.git /root/ffmpeg-src
+          cd /root/ffmpeg-src
+          TOOLCHAIN=/root/theos/toolchain/linux/iphone/bin
+          SDK=/root/theos/sdks/iPhoneOS16.5.sdk
+          # Create prefixed tool symlinks (ar internally calls aarch64-apple-darwin14-ranlib)
+          for tool in ar ranlib nm strip ld; do
+            ln -sf "$TOOLCHAIN/$tool" "$TOOLCHAIN/aarch64-apple-darwin14-$tool"
+          done
+          export CFLAGS="-target arm64-apple-ios15.0 -isysroot $SDK -O3 -std=gnu11 -I/root/ffmpeg-ios/include"
+          export LDFLAGS="-target arm64-apple-ios15.0 -isysroot $SDK -fuse-ld=$TOOLCHAIN/ld -L/root/ffmpeg-ios/lib"
+          ./configure --prefix=/root/ffmpeg-ios --enable-cross-compile --target-os=darwin --arch=aarch64 \
+            --cc=$TOOLCHAIN/clang --ar=$TOOLCHAIN/ar --ranlib=$TOOLCHAIN/ranlib --nm=$TOOLCHAIN/nm --strip=$TOOLCHAIN/strip \
+            --sysroot="$SDK" \
+            --disable-everything --disable-programs --disable-doc --disable-avdevice --disable-swscale \
+            --disable-postproc --disable-avfilter --disable-network --disable-debug --enable-static \
+            --disable-shared --enable-pthreads --enable-swresample --disable-videotoolbox --disable-audiotoolbox \
+            --disable-iconv --disable-zlib --disable-bzlib --disable-lzma --disable-securetransport \
+            --disable-xlib --disable-sdl2 --disable-libxcb --disable-asm \
+            --enable-decoder='vp9,vp8,h264,hevc,opus,vorbis,aac,aac_latm,mp3float,mp3,flac,ac3,eac3,mp2float' \
+            --enable-encoder='aac' \
+            --enable-demuxer='matroska,mpegts,mov,flv,mp3,aac,ogg,wav,flac' \
+            --enable-muxer='mp4,ipod,mov,mp3' \
+            --enable-parser='h264,hevc,aac,aac_latm,vp9,vp8,opus,vorbis,mpegaudio,av1,flac' \
+            --enable-bsf='aac_adtstoasc,vp9_superframe_split,extract_extradata' \
+            --enable-protocol=file
+          make -j$(nproc)
+          make install
+          # LAME headers stay for direct linking by VidGrab
+
+      - name: Cache Python.xcframework
+        id: cache-python
+        uses: actions/cache@v4
+        with:
+          path: /root/pyios
+          key: python-apple-support-3.14-b12
+
+      - name: Download Python.xcframework
+        if: steps.cache-python.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /root/pyios
+          # BeeWare Python-Apple-support: release tag is "3.14-b12", file is "Python-3.14-iOS-support.b12.tar.gz"
+          curl -L "https://github.com/beeware/Python-Apple-support/releases/download/3.14-b12/Python-3.14-iOS-support.b12.tar.gz" -o /tmp/python.tar.gz
+          tar -xf /tmp/python.tar.gz -C /root/pyios
+
+      - name: Download yt-dlp
+        run: |
+          curl -L "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.tar.gz" -o /tmp/yt-dlp.tar.gz
+          mkdir -p /tmp/yt-dlp-master
+          tar -xf /tmp/yt-dlp.tar.gz -C /tmp/yt-dlp-master --strip-components=1
+          # Repack as a zip with yt_dlp/ at the root (assemble.py expects this)
+          cd /tmp/yt-dlp-master
+          zip -r /tmp/yt-dlp.zip yt_dlp yt_dlp_ejs 2>/dev/null || true
+          mkdir -p "$GITHUB_WORKSPACE/Resources"
+          cp /tmp/yt-dlp.zip "$GITHUB_WORKSPACE/Resources/yt-dlp.zip"
+          ls -la "$GITHUB_WORKSPACE/Resources/yt-dlp.zip"
+
+      - name: Install Python packages
+        run: |
+          mkdir -p /root/app_packages
+          cd /root/app_packages
+          # Install pure-Python packages only. Do NOT install brotli — its wheel
+          # contains a Linux x86_64 .so that ldid cannot sign on iOS.
+          uv pip install --target /root/app_packages --python 3.14 \
+            mutagen pycryptodomex websockets certifi charset-normalizer idna urllib3 requests
+          echo "YTDLP_ZIP=$GITHUB_WORKSPACE/Resources/yt-dlp.zip" >> $GITHUB_ENV
+          echo "APP_PACKAGES=/root/app_packages" >> $GITHUB_ENV
+          echo "PYTHON_XCFRAMEWORK=/root/pyios/Python.xcframework" >> $GITHUB_ENV
+          echo "LDID=/root/theos/toolchain/linux/iphone/bin/ldid" >> $GITHUB_ENV
+
+      - name: Build VidGrab
+        run: |
+          set -o pipefail
+          export THEOS=/root/theos
+          export PYFW_DIR=/root/pyios/Python.xcframework/ios-arm64
+          make clean
+          make FINALPACKAGE=1 2>&1
+          echo "=== Build output ==="
+          ls -la .theos/obj/VidGrab.app/
+          file .theos/obj/VidGrab.app/VidGrab
+
+      - name: Assemble IPA
+        run: |
+          set -o pipefail
+          python3 assemble.py
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VidGrab.ipa
+          path: VidGrab.ipa
+          if-no-files-found: error
