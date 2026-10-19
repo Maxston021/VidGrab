@@ -37,7 +37,7 @@ jobs:
         run: |
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           export THEOS="$THEOS"
-          "$THEOS/bin/install-theos"
+          bash "$THEOS/bin/install-theos"
           # Verify toolchain and SDK
           ls -la "$THEOS/toolchain/linux/iphone/bin/" | head -20
           ls -la "$THEOS/sdks/"
