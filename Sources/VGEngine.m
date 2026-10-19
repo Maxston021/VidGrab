@@ -332,7 +332,6 @@ static BOOL isSupportedMediaExtension(NSString *ext) {
         // Build a set of file names already in the library (non-vault items only,
         // since vault items live outside Documents).
         NSMutableSet<NSString *> *known = [NSMutableSet set];
-        NSMutableArray<VGItem *> *orphans = [NSMutableArray array];
         @synchronized (self) {
             for (VGItem *i in self.library) {
                 if (!i.vault && i.fileName.length) [known addObject:i.fileName];
