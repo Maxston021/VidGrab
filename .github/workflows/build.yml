@@ -30,17 +30,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.THEOS }}
-          key: theos-linux-ios16.5-v1
+          key: theos-linux-install-script-v2
 
       - name: Install Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
         run: |
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
-          curl -L https://github.com/theos/toolchain/releases/download/2024.08.11/toolchain-linux-ubuntu-22.04.tar.xz -o /tmp/toolchain.tar.xz
-          tar -xf /tmp/toolchain.tar.xz -C "$THEOS/toolchain"
-          mkdir -p "$THEOS/sdks"
-          curl -L https://github.com/xybp888/iOS-SDKs/releases/download/iOS-SDKs/iPhoneOS16.5.sdk.tar.xz -o /tmp/sdk.tar.xz
-          tar -xf /tmp/sdk.tar.xz -C "$THEOS/sdks"
+          export THEOS="$THEOS"
+          "$THEOS/bin/install-theos"
+          # Verify toolchain and SDK
+          ls -la "$THEOS/toolchain/linux/iphone/bin/" | head -20
+          ls -la "$THEOS/sdks/"
 
       - name: Cache FFmpeg + LAME
         id: cache-ffmpeg
