@@ -1,0 +1,19 @@
+# Build dependencies
+theos/
+ffmpeg-ios/
+pyios/
+app_packages/
+
+# Build output
+.theos/
+obj/
+*.ipa
+*.deb
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
 
 env:
-  THEOS: ${{ github.workspace }}/../theos
-  FFMPEG_DEST: ${{ github.workspace }}/../ffmpeg-ios
-  PYIOS: ${{ github.workspace }}/../pyios
-  APP_PACKAGES: ${{ github.workspace }}/../app_packages
+  THEOS: ${{ github.workspace }}/theos
+  FFMPEG_DEST: ${{ github.workspace }}/ffmpeg-ios
+  PYIOS: ${{ github.workspace }}/pyios
+  APP_PACKAGES: ${{ github.workspace }}/app_packages
 
 jobs:
   build:
@@ -30,10 +30,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.THEOS }}
-          key: theos-linux-install-script-v2
+          key: theos-linux-install-script-v3
 
       - name: Install Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           export THEOS="$THEOS"
